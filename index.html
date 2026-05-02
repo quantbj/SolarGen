@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SolarGen</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#mainContent">Skip to main content</a>
+    <div id="fileModeNotice" class="file-mode-notice" role="alert" hidden>
+      <strong>Open through the local server for live forecasts.</strong>
+      Safari may block forecast requests when this file is opened directly. Use <a href="http://localhost:4173/">http://localhost:4173/</a> while the local server is running.
+    </div>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Rooftop PV forecast</p>
+          <h1>SolarGen</h1>
+          <p class="subhead">10 kWp south-facing rooftop array with 10 kWh storage, calibrated to 50.23 kWh on May 1, 2026.</p>
+        </div>
+        <div class="status-card">
+          <div class="status-card-top">
+            <span id="forecastStatus" class="status-pill">Loading forecast</span>
+            <button id="statusRefreshBtn" type="button">Refresh forecast</button>
+          </div>
+          <span id="updatedAt" class="small-muted">Open-Meteo + local model</span>
+          <div id="loadingDetails" class="loading-details" role="status" aria-live="polite" aria-atomic="true" hidden>
+            <span class="loading-spinner" aria-hidden="true"></span>
+            <span id="loadingMessage">Preparing forecast request</span>
+          </div>
+        </div>
+      </header>
+
+      <main id="mainContent">
+        <section class="summary-grid" aria-label="Solar forecast summary">
+          <article class="metric">
+            <span>Today generation</span>
+            <strong id="todayGeneration">--</strong>
+            <small id="todayWeather">Weather forecast pending</small>
+          </article>
+          <article class="metric">
+            <span>Today saved</span>
+            <strong id="todaySavings">--</strong>
+            <small>PV used at home x avoided import price</small>
+          </article>
+          <article class="metric">
+            <span>Today feed-in</span>
+            <strong id="todayFeedIn">--</strong>
+            <small>Exported kWh x EEG tariff</small>
+          </article>
+          <article class="metric accent">
+            <span>14 day value</span>
+            <strong id="periodValue">--</strong>
+            <small id="periodBreakdown">Savings plus feed-in payment</small>
+          </article>
+        </section>
+
+        <section class="workbench">
+          <aside class="controls" aria-label="Forecast controls">
+            <div class="panel-title">
+              <h2>System</h2>
+              <button id="refreshBtn" type="button">Refresh</button>
+            </div>
+
+            <label>
+              <span>PV capacity <b id="capacityValue">10.0 kWp</b></span>
+              <input id="capacity" type="range" min="4" max="20" value="10" step="0.1">
+            </label>
+
+            <label>
+              <span>Roof tilt <b id="tiltValue">35 deg</b></span>
+              <input id="tilt" type="range" min="5" max="60" value="35" step="1">
+            </label>
+
+            <label>
+              <span>Battery capacity <b id="batteryValue">10.0 kWh</b></span>
+              <input id="battery" type="range" min="0" max="25" value="10" step="0.5">
+            </label>
+
+            <label>
+              <span>Starting battery <b id="batteryStartValue">50%</b></span>
+              <input id="batteryStart" type="range" min="0" max="100" value="50" step="5">
+            </label>
+
+            <label>
+              <span>Feed-in cap <b id="feedCapValue">6.0 kW</b></span>
+              <input id="feedCap" type="range" min="0" max="10" value="6" step="0.1">
+            </label>
+
+            <div class="panel-title lower">
+              <h2>Money</h2>
+            </div>
+
+            <label>
+              <span>Import price <b id="priceValue">0.300 EUR/kWh</b></span>
+              <input id="price" type="range" min="0.15" max="0.55" value="0.30" step="0.005">
+            </label>
+
+            <label>
+              <span>Feed-in tariff <b id="tariffValue">0.0778 EUR/kWh</b></span>
+              <input id="tariff" type="range" min="0.03" max="0.15" value="0.0778" step="0.0001">
+            </label>
+
+            <div class="panel-title lower">
+              <h2>Home load</h2>
+            </div>
+
+            <label>
+              <span class="load-label">
+                <span>Base load <span class="info-tip" tabindex="0" aria-label="Base load explanation" aria-describedby="baseLoadHelp" data-tooltip="Constant household demand applied every hour, day and night."></span></span>
+                <b id="baseLoadValue">0.20 kW</b>
+              </span>
+              <input id="baseLoad" type="range" min="0.1" max="1.5" value="0.20" step="0.05" aria-describedby="baseLoadHelp">
+              <span id="baseLoadHelp" class="sr-only">Constant household demand applied every hour, day and night.</span>
+            </label>
+
+            <label>
+              <span class="load-label">
+                <span>Daytime extra <span class="info-tip" tabindex="0" aria-label="Daytime extra load explanation" aria-describedby="dayLoadHelp" data-tooltip="Additional household demand from 08:00 to 18:00, with a partial morning ramp from 06:00 to 08:00."></span></span>
+                <b id="dayLoadValue">0.20 kW</b>
+              </span>
+              <input id="dayLoad" type="range" min="0" max="2.0" value="0.20" step="0.05" aria-describedby="dayLoadHelp">
+              <span id="dayLoadHelp" class="sr-only">Additional household demand from 08:00 to 18:00, with a partial morning ramp from 06:00 to 08:00.</span>
+            </label>
+
+            <label>
+              <span class="load-label">
+                <span>Evening extra <span class="info-tip" tabindex="0" aria-label="Evening extra load explanation" aria-describedby="eveningLoadHelp" data-tooltip="Additional household demand from 18:00 to 23:00, used to model higher evening consumption."></span></span>
+                <b id="eveningLoadValue">0.60 kW</b>
+              </span>
+              <input id="eveningLoad" type="range" min="0" max="3.0" value="0.60" step="0.05" aria-describedby="eveningLoadHelp">
+              <span id="eveningLoadHelp" class="sr-only">Additional household demand from 18:00 to 23:00, used to model higher evening consumption.</span>
+            </label>
+
+            <div class="source-note">
+              <p>Default EEG tariff: Bundesnetzagentur surplus feed-in rate for rooftop PV up to 10 kWp commissioned from Feb 1 to Jul 31, 2026.</p>
+              <a href="https://www.bundesnetzagentur.de/DE/Fachthemen/ElektrizitaetundGas/ErneuerbareEnergien/EEG_Foerderung/start.html" target="_blank" rel="noreferrer">Bundesnetzagentur source</a>
+            </div>
+          </aside>
+
+          <section class="forecast-area">
+            <div class="chart-panel">
+              <div class="panel-title">
+                <h2>14 day outlook</h2>
+                <span id="forecastMeta" class="small-muted">Waiting for forecast data</span>
+              </div>
+              <canvas id="dailyChart" height="280" role="img" aria-label="Daily generation and value chart" aria-describedby="dailyChartDescription"></canvas>
+              <p id="dailyChartDescription" class="sr-only">Bar chart with daily PV generation in kilowatt-hours and total euro value for each forecast day. Use the forecast table for exact keyboard-accessible values.</p>
+            </div>
+
+            <div class="chart-panel meteo-panel">
+              <div class="panel-title">
+                <h2 id="generationWeatherTitle">Generation and weather</h2>
+                <span class="small-muted">Theoretical potential, rooftop PV, curtailment, irradiance, cloud, temperature, rain</span>
+              </div>
+              <canvas id="generationWeatherChart" height="320" role="img" aria-label="Selected day generation and weather chart" aria-describedby="generationWeatherDescription"></canvas>
+              <p id="generationWeatherDescription" class="sr-only">Line chart for the selected day showing theoretical PV, rooftop PV, curtailed output, irradiance, cloud cover, temperature, and rain. Toggle visible series with the chart legend.</p>
+            </div>
+
+            <div class="two-column">
+              <div class="chart-stack">
+                <div class="chart-panel">
+                  <div class="panel-title">
+                    <h2 id="selectedDayTitle">Hourly flow</h2>
+                    <span class="small-muted">PV, home load, battery, export</span>
+                  </div>
+                  <canvas id="hourlyChart" height="240" role="img" aria-label="Hourly energy flow chart" aria-describedby="hourlyChartDescription"></canvas>
+                  <p id="hourlyChartDescription" class="sr-only">Hourly chart showing PV production, household load, and grid export for the selected day. Exact daily totals are listed in Day details and the forecast table.</p>
+                </div>
+
+                <div class="chart-panel">
+                  <div class="panel-title">
+                    <h2>Battery charge</h2>
+                    <span class="small-muted">State of charge % across the selected day</span>
+                  </div>
+                  <canvas id="batteryChart" height="180" role="img" aria-label="Battery charge percentage chart" aria-describedby="batteryChartDescription"></canvas>
+                  <p id="batteryChartDescription" class="sr-only">Line chart showing battery state of charge as a percentage for each hour of the selected day.</p>
+                </div>
+              </div>
+
+              <div class="chart-panel">
+                <div class="panel-title">
+                  <h2>Day details</h2>
+                  <select id="daySelect" aria-label="Select forecast day"></select>
+                </div>
+                <div id="dayDetails" class="details-grid"></div>
+              </div>
+            </div>
+
+            <div class="table-panel">
+              <div class="panel-title">
+                <h2>Forecast table</h2>
+                <span class="small-muted">Click a row to inspect the day</span>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <caption class="sr-only">Fourteen-day forecast table. Select a row to inspect that day in the charts and detail cards.</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Date</th>
+                      <th scope="col">Weather</th>
+                      <th scope="col">PV kWh</th>
+                      <th scope="col">Home kWh</th>
+                      <th scope="col">Export kWh</th>
+                      <th scope="col">Saved</th>
+                      <th scope="col">Earned</th>
+                      <th scope="col">Total</th>
+                      <th scope="col">Curtailed</th>
+                    </tr>
+                  </thead>
+                  <tbody id="forecastRows"></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      if (window.location.protocol === "file:") {
+        window.addEventListener("DOMContentLoaded", () => {
+          const notice = document.getElementById("fileModeNotice");
+          if (notice) notice.hidden = false;
+        });
+      }
+    </script>
+    <script type="module" src="src/main.js?v=20260502-battery-panel"></script>
+  </body>
+</html>

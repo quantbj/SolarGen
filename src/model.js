@@ -1,0 +1,212 @@
+import { CALIBRATION, DEFAULTS, LOCATION, ROOFTOP_PROFILE } from "./config.js";
+import { clamp, dayOfYear, formatDay, toRad, valueAt } from "./utils.js";
+
+export function simulateForecast(forecast, settings = DEFAULTS) {
+  const daily = forecast.daily;
+  const hourly = forecast.hourly;
+  const grouped = groupHourlyForecast(hourly);
+  const calibrationScale = calculateCalibrationScale();
+  let batterySoc = settings.battery * (settings.batteryStart / 100);
+
+  return daily.time.map((date, dayIndex) => {
+    const hours = (grouped.get(date) || []).map(hour => {
+      const irradiance = hour.irradiance ?? fallbackIrradiance(date, hour.hour, settings.tilt, hour.cloudCover);
+      const tempFactor = pvTemperatureFactor(irradiance, hour.temperature);
+      const theoreticalPv = Math.max(0, (irradiance / 1000) * settings.capacity * calibrationScale * tempFactor);
+      const pv = applyRooftopProfile(theoreticalPv, hour.hour, settings);
+      const curtailed = Math.max(0, pv - settings.feedCap);
+      const deliveredPv = pv - curtailed;
+      const load = householdLoad(hour.hour, settings);
+
+      const direct = Math.min(deliveredPv, load);
+      let remainingLoad = load - direct;
+      const discharge = Math.min(batterySoc, remainingLoad);
+      batterySoc -= discharge;
+      remainingLoad -= discharge;
+
+      let surplus = deliveredPv - direct;
+      const chargeRoom = Math.max(0, settings.battery - batterySoc);
+      const chargeInput = Math.min(surplus, chargeRoom / 0.94);
+      batterySoc += chargeInput * 0.94;
+      surplus -= chargeInput;
+
+      const exportKwh = Math.min(surplus, settings.feedCap);
+      const batteryPercent = settings.battery > 0 ? (batterySoc / settings.battery) * 100 : 0;
+
+      return {
+        ...hour,
+        theoreticalPv,
+        pv,
+        deliveredPv,
+        load,
+        direct,
+        discharge,
+        charge: chargeInput * 0.94,
+        exportKwh,
+        curtailed,
+        importKwh: Math.max(0, remainingLoad),
+        batterySoc,
+        batteryPercent
+      };
+    });
+
+    const totals = sumHours(hours);
+    return {
+      date,
+      label: formatDay(date),
+      weatherCode: valueAt(daily.weather_code, dayIndex, 0),
+      tempMax: valueAt(daily.temperature_2m_max, dayIndex, null),
+      tempMin: valueAt(daily.temperature_2m_min, dayIndex, null),
+      rain: valueAt(daily.precipitation_sum, dayIndex, 0),
+      cloud: valueAt(daily.cloud_cover_mean, dayIndex, 0),
+      sunshineHours: valueAt(daily.sunshine_duration, dayIndex, 0) / 3600,
+      hours,
+      ...totals,
+      savings: totals.selfConsumed * settings.price,
+      earnings: totals.exportKwh * settings.tariff,
+      totalValue: totals.selfConsumed * settings.price + totals.exportKwh * settings.tariff
+    };
+  });
+}
+
+export function groupHourlyForecast(hourly) {
+  const grouped = new Map();
+  hourly.time.forEach((iso, index) => {
+    const date = iso.slice(0, 10);
+    if (!grouped.has(date)) {
+      grouped.set(date, []);
+    }
+    grouped.get(date).push({
+      time: iso,
+      hour: Number(iso.slice(11, 13)),
+      temperature: valueAt(hourly.temperature_2m, index, 16),
+      cloudCover: valueAt(hourly.cloud_cover, index, 0),
+      precipitation: valueAt(hourly.precipitation, index, 0),
+      irradiance: valueAt(hourly.global_tilted_irradiance, index, null),
+      isDay: valueAt(hourly.is_day, index, 0),
+      weatherCode: valueAt(hourly.weather_code, index, 0)
+    });
+  });
+  return grouped;
+}
+
+export function sumHours(hours) {
+  return hours.reduce((acc, hour) => {
+    acc.pv += hour.pv;
+    acc.theoreticalPv += hour.theoreticalPv;
+    acc.deliveredPv += hour.deliveredPv;
+    acc.load += hour.load;
+    acc.direct += hour.direct;
+    acc.discharge += hour.discharge;
+    acc.charge += hour.charge;
+    acc.exportKwh += hour.exportKwh;
+    acc.curtailed += hour.curtailed;
+    acc.importKwh += hour.importKwh;
+    acc.selfConsumed += hour.direct + hour.discharge;
+    acc.endSoc = hour.batterySoc;
+    return acc;
+  }, {
+    pv: 0,
+    theoreticalPv: 0,
+    deliveredPv: 0,
+    load: 0,
+    direct: 0,
+    discharge: 0,
+    charge: 0,
+    exportKwh: 0,
+    curtailed: 0,
+    importKwh: 0,
+    selfConsumed: 0,
+    endSoc: 0
+  });
+}
+
+export function householdLoad(hour, settings = DEFAULTS) {
+  let load = settings.baseLoad;
+  if (hour >= 8 && hour < 18) load += settings.dayLoad;
+  if (hour >= 18 && hour < 23) load += settings.eveningLoad;
+  if (hour >= 6 && hour < 8) load += settings.dayLoad * 0.45;
+  return load;
+}
+
+export function calculateCalibrationScale() {
+  const baseHourly = Array.from({ length: 24 }, (_, hour) => {
+    const irradiance = clearSkyPoa(CALIBRATION.date, hour, DEFAULTS.tilt);
+    return (irradiance / 1000) * DEFAULTS.capacity * pvTemperatureFactor(irradiance, 18);
+  });
+
+  let low = 0.1;
+  let high = 5;
+  for (let iteration = 0; iteration < 32; iteration += 1) {
+    const mid = (low + high) / 2;
+    const generated = baseHourly.reduce((sum, pv, hour) => (
+      sum + applyRooftopProfile(pv * mid, hour, DEFAULTS)
+    ), 0);
+    if (generated < CALIBRATION.clearDayKwh) {
+      low = mid;
+    } else {
+      high = mid;
+    }
+  }
+  return (low + high) / 2;
+}
+
+export function applyRooftopProfile(theoreticalPv, hour, settings = DEFAULTS) {
+  if (theoreticalPv <= 0) return 0;
+  const lowCap = Math.min(ROOFTOP_PROFILE.lowOutputCapKw, settings.capacity);
+  const lowOutput = Math.min(theoreticalPv * ROOFTOP_PROFILE.lowOutputFactor, lowCap);
+
+  if (hour < ROOFTOP_PROFILE.morningLowUntilHour) {
+    return lowOutput;
+  }
+
+  if (hour >= ROOFTOP_PROFILE.eveningDropHour) {
+    return lowOutput;
+  }
+
+  const transitionStart = ROOFTOP_PROFILE.eveningDropHour - ROOFTOP_PROFILE.eveningTransitionHours;
+  if (hour >= transitionStart) {
+    const progress = (hour - transitionStart) / ROOFTOP_PROFILE.eveningTransitionHours;
+    return theoreticalPv * (1 - progress) + lowOutput * progress;
+  }
+
+  return theoreticalPv;
+}
+
+export function pvTemperatureFactor(irradiance, ambientTemperature) {
+  const panelTemp = ambientTemperature + (Math.max(0, irradiance) / 800) * 20;
+  return clamp(1 - 0.0035 * (panelTemp - 25), 0.82, 1.06);
+}
+
+export function fallbackIrradiance(date, hour, tilt, cloudCover) {
+  const clear = clearSkyPoa(date, hour, tilt);
+  const cloudFactor = clamp(1 - 0.72 * Math.pow(cloudCover / 100, 1.35), 0.08, 1);
+  return clear * cloudFactor;
+}
+
+export function clearSkyPoa(dateString, hour, tiltDeg) {
+  const lat = toRad(LOCATION.latitude);
+  const tilt = toRad(tiltDeg);
+  const day = dayOfYear(dateString);
+  const decl = toRad(23.45 * Math.sin(toRad((360 / 365) * (284 + day))));
+  const b = toRad((360 / 365) * (day - 81));
+  const equationOfTime = 9.87 * Math.sin(2 * b) - 7.53 * Math.cos(b) - 1.5 * Math.sin(b);
+  const standardMeridian = 15;
+  const timeCorrection = 4 * (LOCATION.longitude - standardMeridian) + equationOfTime;
+  const solarTime = hour + 0.5 + timeCorrection / 60;
+  const hourAngle = toRad(15 * (solarTime - 12));
+  const cosZenith = Math.sin(lat) * Math.sin(decl) + Math.cos(lat) * Math.cos(decl) * Math.cos(hourAngle);
+  if (cosZenith <= 0) return 0;
+
+  const cosIncidence =
+    Math.sin(decl) * Math.sin(lat) * Math.cos(tilt) -
+    Math.sin(decl) * Math.cos(lat) * Math.sin(tilt) +
+    Math.cos(decl) * Math.cos(lat) * Math.cos(tilt) * Math.cos(hourAngle) +
+    Math.cos(decl) * Math.sin(lat) * Math.sin(tilt) * Math.cos(hourAngle);
+
+  const ghi = 1098 * cosZenith * Math.exp(-0.059 / cosZenith);
+  const beam = Math.max(0, ghi * 0.82 * Math.max(0, cosIncidence) / Math.max(0.12, cosZenith));
+  const diffuse = ghi * 0.18 * ((1 + Math.cos(tilt)) / 2);
+  const reflected = ghi * 0.2 * ((1 - Math.cos(tilt)) / 2);
+  return Math.max(0, beam + diffuse + reflected);
+}
