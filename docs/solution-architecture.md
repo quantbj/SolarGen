@@ -13,6 +13,10 @@ flowchart LR
   E --> F["Summary tiles"]
   E --> G["Canvas charts"]
   E --> H["Forecast table"]
+  A --> I["history_app.forecast_model"]
+  I --> J["SQLite: data/solargen_history.sqlite3"]
+  K["Manual/API actuals"] --> J
+  J --> L["Local history app"]
 ```
 
 ## Modules
@@ -154,3 +158,18 @@ Development dependency:
 - Node.js for tests and syntax checks
 
 There are no npm package dependencies.
+
+
+## Local History Architecture
+
+The local history app is intentionally separate from the published static forecast page. It runs only on this computer and stores data in SQLite at `data/solargen_history.sqlite3`.
+
+Modules:
+
+- `history_app.forecast_model`: fetches Open-Meteo day-ahead data and applies the same PV conversion assumptions used by the browser app.
+- `history_app.database`: owns schema creation, forecast snapshot storage, actual generation storage, and comparison metrics.
+- `history_app.cli`: command-line capture and actuals entry.
+- `history_app.server`: local-only HTTP app at `127.0.0.1:4183`.
+- `history_app/static`: browser UI for capture, manual actual entry, comparison table, and hourly profile chart.
+
+The split keeps private operating history off the public GitHub Pages deployment while preserving a clear future path for API actual ingestion. An API importer should write to `actual_days` and `actual_hours`; comparison code then works without changes.

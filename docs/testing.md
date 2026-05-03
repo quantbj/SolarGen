@@ -22,6 +22,8 @@ Covered behavior:
 - Open-Meteo URL requests the needed tilted solar and weather variables
 - Open-Meteo request timeout fails into fallback handling instead of hanging indefinitely
 - fallback forecast returns 14 days of hourly data
+- local history snapshots produce 24 hourly forecast records
+- SQLite stores forecast snapshots, actuals, and comparison metrics
 
 Canvas drawing and visual layout are smoke-tested in the browser rather than unit-tested.
 
@@ -31,6 +33,7 @@ Direct Node command:
 
 ```sh
 node --test
+python3 -m unittest discover -s tests -p 'test_*.py'
 ```
 
 If `npm` is available:
@@ -38,6 +41,8 @@ If `npm` is available:
 ```sh
 npm test
 ```
+
+The `npm test` script runs both the JavaScript and Python test suites.
 
 ## Syntax Checks
 
@@ -79,6 +84,27 @@ npm run check
 
 During development in this environment:
 
-- `node --test` passed with 13 tests.
-- `node --check` passed for all source modules.
-- `npm` was not available, so direct Node commands were used instead of `npm` scripts.
+- `node --test` covers the browser forecast model.
+- `python3 -m unittest discover -s tests -p 'test_*.py'` covers the local history app.
+- `node --check` and `python3 -m py_compile` cover syntax checks for JavaScript and Python modules.
+
+
+## Local History Smoke Test
+
+1. Initialize the database:
+
+   ```sh
+   python3 -m history_app.cli init-db
+   ```
+
+2. Start the local history app:
+
+   ```sh
+   python3 -m history_app.server
+   ```
+
+3. Open `http://127.0.0.1:4183`.
+4. Click `Capture day-ahead forecast`.
+5. Enter an actual daily total for the target date.
+6. Confirm the comparison table shows actual kWh and daily error.
+7. Enter 24 hourly values and confirm hourly RMSE appears.

@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SolarGen History</title>
+    <link rel="stylesheet" href="history.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Local SQLite database</p>
+          <h1>SolarGen History</h1>
+          <p>Store day-ahead forecasts on this computer, enter actual generation, and compare total kWh plus the hourly profile.</p>
+        </div>
+        <button id="captureBtn" type="button">Capture day-ahead forecast</button>
+      </header>
+
+      <section class="grid">
+        <form id="actualForm" class="panel">
+          <h2>Add actual generation</h2>
+          <label>Date <input id="actualDate" type="date" required></label>
+          <label>Total kWh <input id="actualTotal" type="number" min="0" step="0.01" inputmode="decimal" placeholder="50.23"></label>
+          <label>Hourly kWh values <span>optional, 24 values from 00:00 to 23:00</span><textarea id="actualHourly" rows="8" placeholder="0 0 0 0 0 0.2 ..."></textarea></label>
+          <label>Notes <input id="actualNotes" type="text" placeholder="Source, observation, inverter note"></label>
+          <button type="submit">Save actuals</button>
+          <p id="message" role="status"></p>
+        </form>
+
+        <section class="panel wide">
+          <div class="panel-title">
+            <h2>Forecast vs actual</h2>
+            <select id="runSelect" aria-label="Select forecast run"></select>
+          </div>
+          <div id="summary" class="summary"></div>
+          <canvas id="profileChart" height="320" aria-label="Hourly forecast and actual generation comparison"></canvas>
+        </section>
+      </section>
+
+      <section class="panel">
+        <h2>Stored comparisons</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Issued</th>
+                <th>Target</th>
+                <th>Forecast</th>
+                <th>Actual</th>
+                <th>Error</th>
+                <th>Error %</th>
+                <th>Hourly RMSE</th>
+                <th>Hourly points</th>
+              </tr>
+            </thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+    <script src="history.js"></script>
+  </body>
+</html>

@@ -9,8 +9,16 @@ SolarGen is a static browser app for forecasting rooftop PV production, self-con
 ├── docs/
 │   ├── solution-architecture.md
 │   ├── deployment.md
+│   ├── forecast-history.md
+│   ├── methodology.md
 │   ├── testing.md
 │   └── user-guide.md
+├── history_app/
+│   ├── database.py
+│   ├── forecast_model.py
+│   ├── cli.py
+│   ├── server.py
+│   └── static/
 ├── src/
 │   ├── charts.js
 │   ├── config.js
@@ -46,6 +54,18 @@ The app can also be opened directly from `index.html`, but serving it locally is
 - [Solution architecture](docs/solution-architecture.md)
 - [Testing guide](docs/testing.md)
 - [Deployment guide](docs/deployment.md)
+- [Forecast history guide](docs/forecast-history.md)
+- [Forecast methodology](docs/methodology.md)
+
+## Local Forecast History
+
+SolarGen includes a separate local history app that stores day-ahead forecasts and actual generation in SQLite on this computer. Start it with:
+
+```sh
+python3 -m history_app.server
+```
+
+Then open `http://127.0.0.1:4183`. The database lives at `data/solargen_history.sqlite3` and is ignored by git. See [Forecast history guide](docs/forecast-history.md) and [Forecast methodology](docs/methodology.md).
 
 ## Deployment
 
@@ -67,7 +87,14 @@ node --check src/main.js
 Run tests:
 
 ```sh
+npm test
+```
+
+Or run the suites directly:
+
+```sh
 node --test
+python3 -m unittest discover -s tests -p 'test_*.py'
 ```
 
 `package.json` also includes `npm` scripts for environments where `npm` is available:

@@ -1,0 +1,84 @@
+from __future__ import annotations
+
+import json
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import parse_qs, urlparse
+
+from .database import connect, forecast_detail, init_db, list_comparisons, parse_hourly_values, save_actual, save_forecast_run
+from .forecast_model import capture_day_ahead_forecast
+
+ROOT = Path(__file__).resolve().parents[1]
+STATIC = Path(__file__).resolve().parent / "static"
+
+
+class HistoryHandler(SimpleHTTPRequestHandler):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, directory=str(STATIC), **kwargs)
+
+    def do_GET(self):
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/comparisons":
+            return self.send_json(list_comparisons(db()))
+        if parsed.path == "/api/forecast":
+            run_id = int(parse_qs(parsed.query).get("id", ["0"])[0])
+            detail = forecast_detail(db(), run_id)
+            return self.send_json(detail or {"error": "not found"}, status=200 if detail else 404)
+        return super().do_GET()
+
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        try:
+            body = self.read_json()
+            if parsed.path == "/api/capture":
+                snapshot = capture_day_ahead_forecast()
+                run_id = save_forecast_run(db(), snapshot)
+                return self.send_json({"forecast_run_id": run_id, **snapshot})
+            if parsed.path == "/api/actuals":
+                hourly = body.get("hourly") or []
+                if isinstance(hourly, str):
+                    hourly = parse_hourly_values(hourly)
+                save_actual(
+                    db(),
+                    body["date"],
+                    float(body["total_kwh"]) if body.get("total_kwh") not in (None, "") else None,
+                    [float(value) for value in hourly],
+                    body.get("source", "manual"),
+                    body.get("notes", ""),
+                )
+                return self.send_json({"saved": True})
+            return self.send_json({"error": "not found"}, status=404)
+        except Exception as exc:
+            return self.send_json({"error": str(exc)}, status=400)
+
+    def read_json(self):
+        length = int(self.headers.get("content-length", "0"))
+        if not length:
+            return {}
+        return json.loads(self.rfile.read(length).decode("utf-8"))
+
+    def send_json(self, payload, status=200):
+        data = json.dumps(payload, indent=2).encode("utf-8")
+        self.send_response(status)
+        self.send_header("content-type", "application/json; charset=utf-8")
+        self.send_header("content-length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+
+def db():
+    con = connect()
+    init_db(con)
+    return con
+
+
+def main() -> None:
+    con = connect()
+    init_db(con)
+    server = ThreadingHTTPServer(("127.0.0.1", 4183), HistoryHandler)
+    print("SolarGen history app: http://127.0.0.1:4183")
+    server.serve_forever()
+
+
+if __name__ == "__main__":
+    main()
