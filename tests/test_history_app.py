@@ -3,7 +3,7 @@ import unittest
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from history_app.database import forecast_detail, init_db, list_comparisons, save_actual, save_forecast_run
+from history_app.database import forecast_detail, init_db, list_comparisons, parse_hourly_values, parse_number, save_actual, save_forecast_run
 from history_app.forecast_model import LOCATION, capture_day_ahead_forecast
 
 
@@ -44,6 +44,14 @@ class HistoryAppTest(unittest.TestCase):
         self.assertEqual(detail["run"]["id"], run_id)
         self.assertEqual(len(detail["hours"]), 24)
         self.assertEqual(len(detail["actual_hours"]), 24)
+
+    def test_actual_parsing_accepts_german_decimal_commas(self):
+        values = parse_hourly_values("0,00 0,10 0,20 0,30 0,40 0,50 0,60 0,70 0,80 0,90 1,00 1,10 1,20 1,30 1,40 1,50 1,60 1,70 1,80 1,90 2,00 2,10 2,20 2,30")
+
+        self.assertEqual(len(values), 24)
+        self.assertEqual(values[1], 0.10)
+        self.assertEqual(values[23], 2.30)
+        self.assertEqual(parse_number("36,41"), 36.41)
 
 
 def sample_forecast(*dates):

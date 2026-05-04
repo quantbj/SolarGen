@@ -5,7 +5,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from .database import connect, forecast_detail, init_db, list_comparisons, parse_hourly_values, save_actual, save_forecast_run
+from .database import connect, forecast_detail, init_db, list_comparisons, parse_hourly_values, parse_number, save_actual, save_forecast_run
 from .forecast_model import capture_day_ahead_forecast
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -41,8 +41,8 @@ class HistoryHandler(SimpleHTTPRequestHandler):
                 save_actual(
                     db(),
                     body["date"],
-                    float(body["total_kwh"]) if body.get("total_kwh") not in (None, "") else None,
-                    [float(value) for value in hourly],
+                    parse_number(body["total_kwh"]) if body.get("total_kwh") not in (None, "") else None,
+                    [parse_number(value) for value in hourly],
                     body.get("source", "manual"),
                     body.get("notes", ""),
                 )

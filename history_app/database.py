@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -272,11 +273,20 @@ def parse_hourly_values(text: str) -> list[float]:
     stripped = (text or "").strip()
     if not stripped:
         return []
-    normalized = stripped.replace(";", " ").replace(",", " ")
-    values = [float(token) for token in normalized.split()]
+    tokens = re.findall(r"[-+]?\d+(?:[.,]\d+)?", stripped)
+    values = [parse_number(token) for token in tokens]
     if len(values) != 24:
         raise ValueError("Hourly actuals must contain exactly 24 values.")
     return values
+
+
+def parse_number(value: str | float | int) -> float:
+    if isinstance(value, (int, float)):
+        return float(value)
+    normalized = str(value).strip().replace(",", ".")
+    if not normalized:
+        raise ValueError("Numeric value is empty.")
+    return float(normalized)
 
 
 def validate_date(value: str) -> None:

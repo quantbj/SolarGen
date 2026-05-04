@@ -150,7 +150,7 @@ function line(ctx, rect, points, max, color, width) {
 }
 
 function legend(ctx, x, y, color, label) { ctx.fillStyle = color; ctx.fillRect(x, y - 8, 12, 12); ctx.fillStyle = '#66716a'; ctx.textAlign = 'left'; ctx.fillText(label, x + 18, y + 2); }
-async function fetchJson(url, options = {}) { const res = await fetch(url, { headers: { 'content-type': 'application/json' }, ...options }); const data = await res.json(); if (!res.ok) throw new Error(data.error || res.statusText); return data; }
+async function fetchJson(url, options = {}) { let res; try { res = await fetch(url, { headers: { 'content-type': 'application/json' }, ...options }); } catch (error) { throw new Error('Cannot reach the local SolarGen history server. Start it with: python3 -m history_app.server'); } const data = await res.json(); if (!res.ok) throw new Error(data.error || res.statusText); return data; }
 function setMessage(text, error = false) { els.message.textContent = text; els.message.classList.toggle('error', error); }
 function fmt(value, decimals) { return Number(value).toLocaleString('en-GB', { minimumFractionDigits: decimals, maximumFractionDigits: decimals }); }
 function signed(value, decimals) { return `${value > 0 ? '+' : ''}${fmt(value, decimals)}`; }
