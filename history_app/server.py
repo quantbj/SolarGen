@@ -51,6 +51,13 @@ class HistoryHandler(SimpleHTTPRequestHandler):
         except Exception as exc:
             return self.send_json({"error": str(exc)}, status=400)
 
+
+    def end_headers(self):
+        self.send_header("Cache-Control", "no-store, max-age=0")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
+        super().end_headers()
+
     def read_json(self):
         length = int(self.headers.get("content-length", "0"))
         if not length:
