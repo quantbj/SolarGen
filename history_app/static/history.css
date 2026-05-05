@@ -32,7 +32,7 @@ textarea { resize: vertical; min-height: 140px; }
 .metric { min-height: 78px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: #fbfcfb; }
 .metric span { display: block; color: var(--muted); font-size: .82rem; }
 .metric strong { display: block; margin-top: 6px; font-size: 1.35rem; font-variant-numeric: tabular-nums; }
-canvas { display: block; width: 100%; max-width: 100%; }
+canvas { display: block; width: 100%; max-width: 100%; height: 320px; }
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; min-width: 900px; }
 th, td { padding: 10px 9px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }

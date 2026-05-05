@@ -117,8 +117,9 @@ function renderChart() {
 function drawChart(forecast, actual) {
   const canvas = els.chart;
   const ratio = window.devicePixelRatio || 1;
+  const height = chartBaseHeight(canvas);
+  canvas.style.height = `${height}px`;
   const width = canvas.clientWidth;
-  const height = Number(canvas.getAttribute('height'));
   canvas.width = Math.floor(width * ratio);
   canvas.height = Math.floor(height * ratio);
   const ctx = canvas.getContext('2d');
@@ -150,6 +151,12 @@ function line(ctx, rect, points, max, color, width) {
 }
 
 function legend(ctx, x, y, color, label) { ctx.fillStyle = color; ctx.fillRect(x, y - 8, 12, 12); ctx.fillStyle = '#66716a'; ctx.textAlign = 'left'; ctx.fillText(label, x + 18, y + 2); }
+function chartBaseHeight(canvas) {
+  if (!canvas.dataset.baseHeight) {
+    canvas.dataset.baseHeight = canvas.getAttribute('height') || '320';
+  }
+  return Number(canvas.dataset.baseHeight);
+}
 async function fetchJson(url, options = {}) { let res; try { res = await fetch(url, { headers: { 'content-type': 'application/json' }, ...options }); } catch (error) { throw new Error('Cannot reach the local SolarGen history server. Start it with: python3 -m history_app.server'); } const data = await res.json(); if (!res.ok) throw new Error(data.error || res.statusText); return data; }
 function setMessage(text, error = false) { els.message.textContent = text; els.message.classList.toggle('error', error); }
 function fmt(value, decimals) { return Number(value).toLocaleString('en-GB', { minimumFractionDigits: decimals, maximumFractionDigits: decimals }); }
