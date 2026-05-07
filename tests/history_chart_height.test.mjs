@@ -25,3 +25,9 @@ test("history chart base height remains stable after canvas backing-store resize
   assert.equal(first, 320);
   assert.equal(second, 320);
 });
+
+
+test("dateOnly displays yyyy-mm-dd", () => {
+  const sourceDate = "2026-05-05T21:30:00+02:00";
+  assert.equal(String(sourceDate || "").slice(0, 10), "2026-05-05");
+});

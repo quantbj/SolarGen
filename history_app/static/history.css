@@ -27,6 +27,10 @@ button:hover { border-color: var(--blue); }
 label { display: block; margin-bottom: 14px; color: var(--muted); font-weight: 650; }
 label span { display: block; margin-top: 3px; font-size: .82rem; font-weight: 500; }
 input, textarea, select { width: 100%; margin-top: 6px; padding: 10px; }
+input[type="date"] { min-height: 52px; font-size: 1rem; }
+.date-control { display: grid; grid-template-columns: minmax(0, 1fr) minmax(150px, 0.55fr); gap: 8px; align-items: center; margin-top: 6px; }
+.date-control input { margin-top: 0; min-height: 52px; font-size: 1.08rem; font-variant-numeric: tabular-nums; }
+.native-date { cursor: pointer; }
 textarea { resize: vertical; min-height: 140px; }
 .summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 12px 0 16px; }
 .metric { min-height: 78px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: #fbfcfb; }
@@ -41,3 +45,4 @@ tbody tr { cursor: pointer; }
 tbody tr:hover, tbody tr.selected { background: #eef4ef; }
 #message.error { color: #853b24; }
 @media (max-width: 900px) { .topbar, .grid { grid-template-columns: 1fr; display: grid; } .summary { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 520px) { .date-control { grid-template-columns: 1fr; } }

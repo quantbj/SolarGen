@@ -3,6 +3,7 @@ const els = {
   captureBtn: document.getElementById('captureBtn'),
   actualForm: document.getElementById('actualForm'),
   actualDate: document.getElementById('actualDate'),
+  actualDateText: document.getElementById('actualDateText'),
   actualTotal: document.getElementById('actualTotal'),
   actualHourly: document.getElementById('actualHourly'),
   actualNotes: document.getElementById('actualNotes'),
@@ -19,6 +20,8 @@ async function init() {
   els.captureBtn.addEventListener('click', captureForecast);
   els.actualForm.addEventListener('submit', saveActuals);
   els.runSelect.addEventListener('change', () => selectRun(Number(els.runSelect.value)));
+  els.actualDate.addEventListener('change', () => syncDateText(els.actualDate.value));
+  els.actualDateText.addEventListener('input', () => syncNativeDate(els.actualDateText.value));
   await loadComparisons();
 }
 
@@ -39,7 +42,7 @@ async function saveActuals(event) {
     await fetchJson('/api/actuals', {
       method: 'POST',
       body: JSON.stringify({
-        date: els.actualDate.value,
+        date: normalizedDateInput(),
         total_kwh: els.actualTotal.value,
         hourly: els.actualHourly.value,
         source: 'manual',
@@ -65,15 +68,45 @@ async function loadComparisons() {
 async function selectRun(id) {
   state.selectedId = id;
   state.detail = await fetchJson(`/api/forecast?id=${id}`);
-  if (state.detail?.run?.target_date) els.actualDate.value = state.detail.run.target_date;
+  if (state.detail?.run?.target_date) setActualDate(state.detail.run.target_date);
   renderTable();
   renderSelect();
   renderSummary();
   renderChart();
 }
 
+
+function setActualDate(value) {
+  const normalized = dateOnly(value);
+  els.actualDate.value = normalized;
+  syncDateText(normalized);
+}
+
+function syncDateText(value) {
+  els.actualDateText.value = dateOnly(value);
+}
+
+function syncNativeDate(value) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    els.actualDate.value = value;
+  }
+}
+
+function normalizedDateInput() {
+  const value = els.actualDateText.value.trim() || els.actualDate.value;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    throw new Error('Use date format yyyy-mm-dd.');
+  }
+  els.actualDate.value = value;
+  return value;
+}
+
+function dateOnly(value) {
+  return String(value || '').slice(0, 10);
+}
+
 function renderSelect() {
-  els.runSelect.innerHTML = state.comparisons.map(item => `<option value="${item.id}">${item.target_date} from ${item.issued_date}</option>`).join('') || '<option>No forecasts</option>';
+  els.runSelect.innerHTML = state.comparisons.map(item => `<option value="${item.id}">${dateOnly(item.target_date)} from ${dateOnly(item.issued_date)}</option>`).join('') || '<option>No forecasts</option>';
   els.runSelect.disabled = !state.comparisons.length;
   if (state.selectedId) els.runSelect.value = String(state.selectedId);
 }
@@ -81,8 +114,8 @@ function renderSelect() {
 function renderTable() {
   els.rows.innerHTML = state.comparisons.map(item => `
     <tr class="${item.id === state.selectedId ? 'selected' : ''}" data-id="${item.id}" tabindex="0">
-      <td>${item.issued_date}</td>
-      <td>${item.target_date}</td>
+      <td>${dateOnly(item.issued_date)}</td>
+      <td>${dateOnly(item.target_date)}</td>
       <td>${fmt(item.forecast_total_kwh, 1)}</td>
       <td>${item.actual_total_kwh == null ? '--' : fmt(item.actual_total_kwh, 1)}</td>
       <td>${item.error_kwh == null ? '--' : signed(item.error_kwh, 1)}</td>
