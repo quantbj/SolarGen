@@ -14,6 +14,8 @@ flowchart LR
   E --> G["Canvas charts"]
   E --> H["Forecast table"]
   A --> I["history_app.forecast_model"]
+  I --> M["src/historyForecastCli.mjs"]
+  M --> C
   I --> J["SQLite: data/solargen_history.sqlite3"]
   K["Manual/API actuals"] --> J
   J --> L["Local history app"]
@@ -40,6 +42,12 @@ Responsibilities:
 - calibrate output against the measured full-sun day of 50.23 kWh on May 1, 2026
 - model direct self-consumption, battery charge/discharge, grid import, grid export, and curtailment
 - compute savings, feed-in earnings, and total value
+
+This is the canonical PV model for both the browser forecast and local history capture.
+
+`src/historyForecastCli.mjs`
+
+Command-line bridge used by the Python history app. It converts day-ahead Open-Meteo payloads into the same forecast snapshot shape the SQLite database stores, while reusing `src/model.js`.
 
 `src/charts.js`
 
@@ -77,10 +85,12 @@ The preferred forecast input is Open-Meteo `global_tilted_irradiance`, requested
 Hourly PV output is estimated as:
 
 ```text
-kWh = irradiance W/m2 / 1000 * capacity kWp * calibrationScale * temperatureFactor
+kWh = cloudAdjustedIrradiance W/m2 / 1000 * capacity kWp * calibrationScale * temperatureFactor
 ```
 
 The calibration scale is derived from the local clear-sky model so the default 10 kWp system aligns with the measured 50.23 kWh full-sun day.
+
+The model includes an empirical cloud response uplift fitted from the first stored actual-vs-forecast comparisons. It is capped at `2.0x` for high-cloud, low-irradiance hours and is zero for clear hours, so the full-sun calibration remains anchored while overcast days are no longer systematically under-forecast.
 
 The model then applies a screenshot-calibrated rooftop profile. This profile reflects the observed behavior from May 1, 2026:
 

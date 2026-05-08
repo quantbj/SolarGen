@@ -8,6 +8,7 @@ Covered behavior:
 
 - clear-sky irradiance is zero at night and higher at midday
 - cloud cover reduces fallback irradiance
+- high-cloud low-irradiance recalibration improves the stored cloudy-day underforecast pattern
 - household load profile applies base, morning, daytime, and evening loads
 - default household load totals about 10 kWh/day
 - rooftop profile suppresses output before 10:00 and after 17:00 as observed in the screenshots
@@ -23,6 +24,7 @@ Covered behavior:
 - Open-Meteo request timeout fails into fallback handling instead of hanging indefinitely
 - fallback forecast returns 14 days of hourly data
 - local history snapshots produce 24 hourly forecast records
+- local history snapshots call the shared JavaScript forecast model through the Python adapter
 - SQLite stores forecast snapshots, actuals, and comparison metrics
 
 Canvas drawing and visual layout are smoke-tested in the browser rather than unit-tested.
@@ -53,6 +55,8 @@ node --check src/config.js
 node --check src/utils.js
 node --check src/model.js
 node --check src/weather.js
+node --check src/historyForecast.js
+node --check src/historyForecastCli.mjs
 node --check src/charts.js
 node --check src/main.js
 ```

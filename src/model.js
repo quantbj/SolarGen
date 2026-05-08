@@ -1,4 +1,4 @@
-import { CALIBRATION, DEFAULTS, LOCATION, ROOFTOP_PROFILE } from "./config.js";
+import { CALIBRATION, CLOUD_RESPONSE, DEFAULTS, LOCATION, ROOFTOP_PROFILE } from "./config.js";
 import { clamp, dayOfYear, formatDay, toRad, valueAt } from "./utils.js";
 
 export function simulateForecast(forecast, settings = DEFAULTS) {
@@ -11,8 +11,9 @@ export function simulateForecast(forecast, settings = DEFAULTS) {
   return daily.time.map((date, dayIndex) => {
     const hours = (grouped.get(date) || []).map(hour => {
       const irradiance = hour.irradiance ?? fallbackIrradiance(date, hour.hour, settings.tilt, hour.cloudCover);
-      const tempFactor = pvTemperatureFactor(irradiance, hour.temperature);
-      const theoreticalPv = Math.max(0, (irradiance / 1000) * settings.capacity * calibrationScale * tempFactor);
+      const correctedIrradiance = cloudAdjustedIrradiance(irradiance, hour.cloudCover);
+      const tempFactor = pvTemperatureFactor(correctedIrradiance, hour.temperature);
+      const theoreticalPv = Math.max(0, (correctedIrradiance / 1000) * settings.capacity * calibrationScale * tempFactor);
       const pv = applyRooftopProfile(theoreticalPv, hour.hour, settings);
       const curtailed = Math.max(0, pv - settings.feedCap);
       const deliveredPv = pv - curtailed;
@@ -176,6 +177,20 @@ export function applyRooftopProfile(theoreticalPv, hour, settings = DEFAULTS) {
 export function pvTemperatureFactor(irradiance, ambientTemperature) {
   const panelTemp = ambientTemperature + (Math.max(0, irradiance) / 800) * 20;
   return clamp(1 - 0.0035 * (panelTemp - 25), 0.82, 1.06);
+}
+
+export function cloudAdjustedIrradiance(irradiance, cloudCover) {
+  if (irradiance <= 0) return 0;
+  const cloud = clamp((cloudCover || 0) / 100, 0, 1);
+  const lowIrradianceWeight = Math.pow(
+    clamp(1 - irradiance / CLOUD_RESPONSE.irradianceReferenceWm2, 0, 1),
+    CLOUD_RESPONSE.irradianceExponent
+  );
+  const multiplier = Math.min(
+    CLOUD_RESPONSE.maxMultiplier,
+    1 + CLOUD_RESPONSE.cloudGain * cloud * lowIrradianceWeight
+  );
+  return irradiance * multiplier;
 }
 
 export function fallbackIrradiance(date, hour, tilt, cloudCover) {

@@ -18,6 +18,13 @@ export const ROOFTOP_PROFILE = {
   eveningTransitionHours: 0.5
 };
 
+export const CLOUD_RESPONSE = {
+  maxMultiplier: 2,
+  cloudGain: 1.3,
+  irradianceReferenceWm2: 1400,
+  irradianceExponent: 0.5
+};
+
 export const DEFAULTS = {
   capacity: 10,
   tilt: 35,

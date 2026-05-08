@@ -5,6 +5,7 @@ import { DEFAULTS } from "../src/config.js";
 import {
   clearSkyPoa,
   applyRooftopProfile,
+  cloudAdjustedIrradiance,
   fallbackIrradiance,
   householdLoad,
   simulateForecast
@@ -27,6 +28,16 @@ test("fallback irradiance decreases as cloud cover rises", () => {
 
   assert.ok(clear > overcast);
   assert.ok(overcast > 0);
+});
+
+test("cloud response uplifts high-cloud low-irradiance hours without changing clear hours", () => {
+  assert.equal(cloudAdjustedIrradiance(700, 0), 700);
+  const overcastLowIrradiance = cloudAdjustedIrradiance(180, 100);
+  const overcastHighIrradiance = cloudAdjustedIrradiance(900, 100);
+
+  assert.ok(overcastLowIrradiance > 330);
+  assert.ok(overcastLowIrradiance <= 360);
+  assert.ok(overcastHighIrradiance < 1800);
 });
 
 test("household load shape includes morning, daytime, and evening demand", () => {
@@ -106,6 +117,25 @@ test("clear full-sun modeled rooftop generation calibrates to the measured scree
   assert.ok(day.hours.find(hour => hour.hour === 10).deliveredPv >= 5.9);
   assert.ok(day.hours.find(hour => hour.hour === 12).curtailed > 0);
   assert.ok(day.hours.find(hour => hour.hour === 17).pv < 1);
+});
+
+test("recalibrated cloud response improves stored cloudy-day underforecast pattern", () => {
+  const may4 = oneDayForecast({
+    date: "2026-05-04",
+    cloudByHour: hour => STORED_MAY4.cloud[hour],
+    irradianceByHour: hour => STORED_MAY4.irradiance[hour]
+  });
+  const may5 = oneDayForecast({
+    date: "2026-05-05",
+    cloudByHour: hour => STORED_MAY5.cloud[hour],
+    irradianceByHour: hour => STORED_MAY5.irradiance[hour]
+  });
+
+  const [may4Day] = simulateForecast(may4, noLoadSettings());
+  const [may5Day] = simulateForecast(may5, noLoadSettings());
+
+  assert.ok(Math.abs(may4Day.pv - 36.41) < 1.5);
+  assert.ok(Math.abs(may5Day.pv - 14.47) < 1.0);
 });
 
 test("battery storage reduces evening grid import after midday surplus and reports state of charge percent", () => {
@@ -212,7 +242,7 @@ test("fallback forecast has the expected 14 day hourly shape", () => {
   assert.equal(forecast.hourly.time.length, 14 * 24);
 });
 
-function oneDayForecast({ irradianceByHour, date }) {
+function oneDayForecast({ irradianceByHour, date, cloudByHour = () => 0 }) {
   const hourly = {
     time: [],
     temperature_2m: [],
@@ -226,7 +256,7 @@ function oneDayForecast({ irradianceByHour, date }) {
   for (let hour = 0; hour < 24; hour += 1) {
     hourly.time.push(`${date}T${String(hour).padStart(2, "0")}:00`);
     hourly.temperature_2m.push(18);
-    hourly.cloud_cover.push(0);
+    hourly.cloud_cover.push(cloudByHour(hour));
     hourly.precipitation.push(0);
     hourly.global_tilted_irradiance.push(irradianceByHour(hour));
     hourly.is_day.push(hour >= 6 && hour < 21 ? 1 : 0);
@@ -250,3 +280,24 @@ function oneDayForecast({ irradianceByHour, date }) {
 function round(value) {
   return Math.round(value * 1000000) / 1000000;
 }
+
+function noLoadSettings() {
+  return {
+    ...DEFAULTS,
+    battery: 0,
+    batteryStart: 0,
+    baseLoad: 0,
+    dayLoad: 0,
+    eveningLoad: 0
+  };
+}
+
+const STORED_MAY4 = {
+  irradiance: [0, 0, 0, 0, 0, 0, 0, 19, 57, 104, 213, 312, 334, 307, 207, 204, 385, 610, 416, 237, 76, 18, 0, 0],
+  cloud: [99, 95, 82, 97, 88, 96, 100, 96, 100, 100, 100, 100, 100, 100, 100, 100, 55, 100, 85, 61, 98, 100, 100, 100]
+};
+
+const STORED_MAY5 = {
+  irradiance: [0, 0, 0, 0, 0, 0, 0, 7, 27, 40, 76, 132, 87, 90, 119, 126, 108, 194, 148, 82, 32, 7, 0, 0],
+  cloud: [100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 98, 100, 100, 100, 100, 100, 98, 98, 97, 100, 100, 100, 100, 100]
+};

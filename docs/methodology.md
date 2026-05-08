@@ -31,10 +31,31 @@ Assumption: Open-Meteo `global_tilted_irradiance` already accounts for the selec
 For each hour:
 
 ```text
-theoretical_kWh = irradiance_Wm2 / 1000 * capacity_kWp * calibration_scale * temperature_factor
+cloud_adjusted_irradiance = irradiance_Wm2 * cloud_response_multiplier
+theoretical_kWh = cloud_adjusted_irradiance / 1000 * capacity_kWp * calibration_scale * temperature_factor
 ```
 
 The model treats hourly average kW as kWh for that hour. For example, a modeled 5.2 kW hourly average contributes 5.2 kWh to the daily total.
+
+## Cloud-Day Recalibration
+
+The first three day-ahead forecast comparisons showed a systematic under-forecast on high-cloud days:
+
+- `2026-05-04`: forecast `19.18 kWh`, actual `36.41 kWh`
+- `2026-05-05`: forecast `7.42 kWh`, actual `14.47 kWh`
+- `2026-05-08`: forecast `52.34 kWh`, actual `55.15 kWh`
+
+The sunny/mostly clear day was close, while the overcast days were roughly half the actual generation. SolarGen therefore applies an empirical cloud response multiplier before temperature derating:
+
+```text
+cloud_fraction = cloud_cover_pct / 100
+low_irradiance_weight = sqrt(1 - irradiance_Wm2 / 1400)
+cloud_response_multiplier = min(2.0, 1 + 1.3 * cloud_fraction * low_irradiance_weight)
+```
+
+The low-irradiance weight is clamped between `0` and `1`. Clear hours keep multiplier `1.0`; high-cloud, low-irradiance hours can be lifted up to `2.0`; bright high-irradiance hours are changed much less.
+
+This is an empirical correction to the Open-Meteo tilted irradiance input for this site. It is intentionally conservative and should be refit once more measured days are available.
 
 ## Temperature Derating
 
@@ -117,6 +138,10 @@ Each snapshot stores:
 
 This is important because future forecast data changes over time. Accuracy must be measured against the forecast that was known before the target day, not against a refreshed forecast after the actual generation is known.
 
+## Shared Implementation
+
+The browser forecast app and the local history app use the same JavaScript model in `src/model.js`. The history app remains a local Python server for SQLite and HTTP handling, but it delegates day-ahead forecast conversion to `src/historyForecastCli.mjs`. This avoids maintaining separate PV formulas in Python and JavaScript.
+
 ## Actuals
 
 Manual actuals can be entered as:
@@ -173,6 +198,6 @@ The current methodology does not yet include:
 - wind-based module cooling
 - measured household load
 - vendor API actual ingestion
-- automatic recalibration from accumulated forecast errors
+- automatic parameter fitting from a larger forecast-error history
 
 Those are natural future improvements once enough forecast/actual history has been collected.

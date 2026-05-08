@@ -1,13 +1,13 @@
 import { DEFAULTS, FORECAST_DAYS, LOCATION, OPEN_METEO_ENDPOINT } from "./config.js";
 import { fallbackIrradiance } from "./model.js";
 
-export function buildForecastUrl(settings) {
+export function buildForecastUrl(settings, forecastDays = FORECAST_DAYS) {
   const url = new URL(OPEN_METEO_ENDPOINT);
   url.search = new URLSearchParams({
     latitude: LOCATION.latitude,
     longitude: LOCATION.longitude,
     timezone: LOCATION.timezone,
-    forecast_days: String(FORECAST_DAYS),
+    forecast_days: String(forecastDays),
     tilt: String(settings.tilt),
     azimuth: "0",
     hourly: [
