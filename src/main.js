@@ -1,15 +1,18 @@
-import { DEFAULTS, LOCATION } from "./config.js?v=20260502-battery-panel";
-import { renderBatteryChart, renderDailyChart, renderGenerationWeatherChart, renderHourlyChart } from "./charts.js?v=20260502-battery-panel";
-import { simulateForecast } from "./model.js?v=20260502-battery-panel";
-import { buildFallbackForecast, fetchOpenMeteoForecast } from "./weather.js?v=20260502-battery-panel";
-import { debounce, formatMoney, formatNumber } from "./utils.js?v=20260502-battery-panel";
+import { DEFAULTS, LOCATION } from "./config.js?v=20260509-touch-tooltips";
+import { renderBatteryChart, renderDailyChart, renderGenerationWeatherChart, renderHourlyChart } from "./charts.js?v=20260509-touch-tooltips";
+import { simulateForecast } from "./model.js?v=20260509-touch-tooltips";
+import { buildFallbackForecast, fetchOpenMeteoForecast } from "./weather.js?v=20260509-touch-tooltips";
+import { debounce, formatMoney, formatNumber } from "./utils.js?v=20260509-touch-tooltips";
 
 const state = {
   forecast: null,
   days: [],
   selectedIndex: 0,
   settings: { ...DEFAULTS },
-  hiddenGenerationWeatherSeries: new Set()
+  hiddenDailySeries: new Set(),
+  hiddenGenerationWeatherSeries: new Set(),
+  hiddenHourlySeries: new Set(),
+  hiddenBatterySeries: new Set()
 };
 
 const els = {
@@ -51,6 +54,9 @@ const controls = [
   ["eveningLoad", "eveningLoadValue", value => `${value.toFixed(2)} kW`]
 ];
 
+/**
+ * Wire the app once on page load: controls, refresh buttons, forecast fetch, and resize redraws.
+ */
 function init() {
   wireControls();
   fetchForecast();
@@ -63,6 +69,11 @@ function init() {
   });
 }
 
+/**
+ * Attach all slider controls to model settings.
+ * Most controls re-simulate locally; roof tilt also refetches because Open-Meteo returns
+ * irradiance for the requested panel tilt.
+ */
 function wireControls() {
   const refetchForTilt = debounce(fetchForecast, 450);
   controls.forEach(([id, valueId, format]) => {
@@ -81,6 +92,10 @@ function wireControls() {
   });
 }
 
+/**
+ * Fetch live weather, fall back to deterministic local weather when external data is unavailable,
+ * then run the shared PV/storage/value simulation.
+ */
 async function fetchForecast() {
   setStatus("Loading forecast", false);
   setLoading(true, "Preparing Open-Meteo request for OHZ: hourly irradiance, cloud cover, rain, temperature, and weather codes.");
@@ -137,32 +152,55 @@ function computeAndRender() {
   render();
 }
 
+/**
+ * Redraw all derived UI from the current state. No network or model work happens here.
+ */
 function render() {
   if (!state.days.length) return;
   renderSummary();
   renderDaySelect();
-  renderDailyChart(els.dailyChart, state.days, state.selectedIndex, index => {
-    state.selectedIndex = index;
-    render();
-  });
+  renderDailyChart(
+    els.dailyChart,
+    state.days,
+    state.selectedIndex,
+    index => {
+      state.selectedIndex = index;
+      render();
+    },
+    state.hiddenDailySeries,
+    seriesId => toggleSeries(state.hiddenDailySeries, seriesId)
+  );
   renderGenerationWeatherChart(
     els.generationWeatherChart,
     state.days[state.selectedIndex],
     state.hiddenGenerationWeatherSeries,
-    toggleGenerationWeatherSeries
+    seriesId => toggleSeries(state.hiddenGenerationWeatherSeries, seriesId)
   );
-  renderHourlyChart(els.hourlyChart, state.days[state.selectedIndex]);
-  renderBatteryChart(els.batteryChart, state.days[state.selectedIndex]);
+  renderHourlyChart(
+    els.hourlyChart,
+    state.days[state.selectedIndex],
+    state.hiddenHourlySeries,
+    seriesId => toggleSeries(state.hiddenHourlySeries, seriesId)
+  );
+  renderBatteryChart(
+    els.batteryChart,
+    state.days[state.selectedIndex],
+    state.hiddenBatterySeries,
+    seriesId => toggleSeries(state.hiddenBatterySeries, seriesId)
+  );
   els.generationWeatherTitle.textContent = `Generation and weather: ${state.days[state.selectedIndex].label}`;
   renderDetails();
   renderTable();
 }
 
-function toggleGenerationWeatherSeries(seriesId) {
-  if (state.hiddenGenerationWeatherSeries.has(seriesId)) {
-    state.hiddenGenerationWeatherSeries.delete(seriesId);
+/**
+ * Toggle one chart series and redraw. Each chart owns a separate hidden-series set.
+ */
+function toggleSeries(hiddenSeries, seriesId) {
+  if (hiddenSeries.has(seriesId)) {
+    hiddenSeries.delete(seriesId);
   } else {
-    state.hiddenGenerationWeatherSeries.add(seriesId);
+    hiddenSeries.add(seriesId);
   }
   render();
 }

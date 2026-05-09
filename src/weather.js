@@ -1,6 +1,10 @@
 import { DEFAULTS, FORECAST_DAYS, LOCATION, OPEN_METEO_ENDPOINT } from "./config.js";
 import { fallbackIrradiance } from "./model.js";
 
+/**
+ * Build the Open-Meteo forecast URL for the configured location and roof tilt.
+ * Output is a URL object so callers can inspect query parameters in tests.
+ */
 export function buildForecastUrl(settings, forecastDays = FORECAST_DAYS) {
   const url = new URL(OPEN_METEO_ENDPOINT);
   url.search = new URLSearchParams({
@@ -30,6 +34,10 @@ export function buildForecastUrl(settings, forecastDays = FORECAST_DAYS) {
   return url;
 }
 
+/**
+ * Fetch Open-Meteo data with a timeout.
+ * Input `fetchFn` is injectable for tests; output is the raw Open-Meteo JSON payload.
+ */
 export async function fetchOpenMeteoForecast(settings, fetchFn = fetch, timeoutMs = 12000) {
   const controller = typeof AbortController === "undefined" ? null : new AbortController();
   const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
@@ -53,6 +61,10 @@ export async function fetchOpenMeteoForecast(settings, fetchFn = fetch, timeoutM
   }
 }
 
+/**
+ * Build a deterministic offline forecast with plausible weather fields.
+ * This keeps the UI functional when the external API is unavailable.
+ */
 export function buildFallbackForecast(start = new Date(), settings = DEFAULTS) {
   const hourly = {
     time: [],

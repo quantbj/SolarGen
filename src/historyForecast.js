@@ -2,6 +2,10 @@ import { DEFAULTS, LOCATION } from "./config.js";
 import { simulateForecast } from "./model.js";
 import { buildForecastUrl } from "./weather.js";
 
+/**
+ * Convert a raw Open-Meteo payload into a SQLite-ready day-ahead history snapshot.
+ * Input `now` controls the issue date; output matches history_app.database.save_forecast_run.
+ */
 export function captureDayAheadForecast({ forecast, settings = DEFAULTS, now = new Date() }) {
   const effectiveSettings = { ...DEFAULTS, ...settings };
   const issuedDate = zonedDateString(now, LOCATION.timezone);
@@ -15,10 +19,16 @@ export function captureDayAheadForecast({ forecast, settings = DEFAULTS, now = n
   return snapshotFromDay(day, issuedDate, targetDate, effectiveSettings, now);
 }
 
+/**
+ * Build the short-horizon Open-Meteo URL used by the local history capture workflow.
+ */
 export function buildHistoryForecastUrl(settings = DEFAULTS, forecastDays = 3) {
   return String(buildForecastUrl({ ...DEFAULTS, ...settings }, forecastDays));
 }
 
+/**
+ * Map the shared browser day model into the Python history app's persisted field names.
+ */
 function snapshotFromDay(day, issuedDate, targetDate, settings, now) {
   return {
     issued_at: zonedIsoString(now, LOCATION.timezone),
@@ -54,6 +64,9 @@ function snapshotFromDay(day, issuedDate, targetDate, settings, now) {
   };
 }
 
+/**
+ * Keep only the target date in a multi-day Open-Meteo payload before simulation.
+ */
 function selectForecastDays(forecast, dates) {
   const dateSet = new Set(dates);
   const hourly = {};

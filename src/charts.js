@@ -12,11 +12,16 @@ const COLORS = {
   grey: "#6f7782"
 };
 
-export function renderDailyChart(canvas, days, selectedIndex, onSelectDay) {
+/**
+ * Render the 14-day bar chart.
+ * Click/tap on a bar selects that day and shows its tooltip; click/tap on legend items toggles series.
+ */
+export function renderDailyChart(canvas, days, selectedIndex, onSelectDay, hiddenSeries = new Set(), onToggleSeries = () => {}) {
   const ctx = setupCanvas(canvas);
   const rect = chartRect(ctx.canvas, 48, 48, 52, 62);
   const maxKwh = Math.max(10, ...days.map(day => day.pv)) * 1.14;
   const maxValue = Math.max(5, ...days.map(day => day.totalValue)) * 1.14;
+  const isVisible = id => !hiddenSeries.has(id);
 
   drawGrid(ctx, rect, 5, value => `${formatNumber((maxKwh * value) / 5, 0)}`);
   drawRightAxis(ctx, rect, 5, value => `${formatNumber((maxValue * value) / 5, 0)}`);
@@ -31,13 +36,17 @@ export function renderDailyChart(canvas, days, selectedIndex, onSelectDay) {
     const groupGap = Math.max(3, barWidth * 0.1);
     const groupedWidth = (barWidth - groupGap) / 2;
 
-    ctx.fillStyle = index === selectedIndex ? COLORS.blue : COLORS.sky;
-    roundRect(ctx, x, rect.y + rect.h - kwhHeight, groupedWidth, kwhHeight, 5);
-    ctx.fill();
+    if (isVisible("pv")) {
+      ctx.fillStyle = index === selectedIndex ? COLORS.blue : COLORS.sky;
+      roundRect(ctx, x, rect.y + rect.h - kwhHeight, groupedWidth, kwhHeight, 5);
+      ctx.fill();
+    }
 
-    ctx.fillStyle = COLORS.purple;
-    roundRect(ctx, x + groupedWidth + groupGap, rect.y + rect.h - valueHeight, groupedWidth, valueHeight, 4);
-    ctx.fill();
+    if (isVisible("value")) {
+      ctx.fillStyle = COLORS.purple;
+      roundRect(ctx, x + groupedWidth + groupGap, rect.y + rect.h - valueHeight, groupedWidth, valueHeight, 4);
+      ctx.fill();
+    }
 
     ctx.fillStyle = "#66716a";
     ctx.textAlign = "center";
@@ -48,17 +57,24 @@ export function renderDailyChart(canvas, days, selectedIndex, onSelectDay) {
     ctx.fillText((date || "").replace("/", "."), x + barWidth / 2, rect.y + rect.h + 38);
   });
 
-  drawLegend(ctx, [
-    [COLORS.sky, "PV kWh"],
-    [COLORS.purple, "EUR value"]
+  const legendBoxes = drawLegend(ctx, [
+    { id: "pv", color: COLORS.sky, label: "PV kWh", disabled: !isVisible("pv") },
+    { id: "value", color: COLORS.purple, label: "EUR value", disabled: !isVisible("value") }
   ], rect.x, 18);
 
   canvas.onclick = event => {
     const box = canvas.getBoundingClientRect();
     const x = event.clientX - box.left;
+    const y = event.clientY - box.top;
+    const legendHit = legendBoxes.find(item => pointInRect(x, y, item));
+    if (legendHit) {
+      onToggleSeries(legendHit.id);
+      return;
+    }
     const index = dayIndexAtX(x, rect, barWidth, barGap, days.length);
     if (index >= 0 && index < days.length) {
       onSelectDay(index);
+      showDailyTooltip(canvas, days[index], x, y);
     }
   };
 
@@ -66,6 +82,13 @@ export function renderDailyChart(canvas, days, selectedIndex, onSelectDay) {
     const box = canvas.getBoundingClientRect();
     const x = event.clientX - box.left;
     const y = event.clientY - box.top;
+    const legendHit = legendBoxes.find(item => pointInRect(x, y, item));
+    if (legendHit) {
+      canvas.style.cursor = "pointer";
+      showToggleTooltip(canvas, legendHit, x, y);
+      return;
+    }
+
     const index = dayIndexAtX(x, rect, barWidth, barGap, days.length);
     if (index < 0 || y < rect.y || y > rect.y + rect.h + 48) {
       hideTooltip(canvas);
@@ -75,13 +98,7 @@ export function renderDailyChart(canvas, days, selectedIndex, onSelectDay) {
 
     const day = days[index];
     canvas.style.cursor = "pointer";
-    showTooltip(canvas, x, y, [
-      `<strong>${escapeHtml(day.label)}</strong>`,
-      `PV: ${formatNumber(day.pv, 1)} kWh`,
-      `Value: EUR ${formatNumber(day.totalValue, 2)}`,
-      `Saved: EUR ${formatNumber(day.savings, 2)}`,
-      `Feed-in: EUR ${formatNumber(day.earnings, 2)}`
-    ]);
+    showDailyTooltip(canvas, day, x, y);
   };
 
   canvas.onmouseleave = () => {
@@ -90,7 +107,12 @@ export function renderDailyChart(canvas, days, selectedIndex, onSelectDay) {
   };
 }
 
-export function renderHourlyChart(canvas, day) {
+/**
+ * Render selected-day hourly PV/load/export.
+ * The chart uses the same interaction contract as the other charts: legend toggles visibility,
+ * while click/tap/hover over the chart body shows the nearest value.
+ */
+export function renderHourlyChart(canvas, day, hiddenSeries = new Set(), onToggleSeries = () => {}) {
   const ctx = setupCanvas(canvas);
   const rect = chartRect(ctx.canvas, 42, 16, 34, 34);
   const maxValue = Math.max(1, ...day.hours.flatMap(hour => [
@@ -101,16 +123,45 @@ export function renderHourlyChart(canvas, day) {
     hour.discharge
   ])) * 1.2;
   const barWidth = rect.w / 24;
+  const isVisible = id => !hiddenSeries.has(id);
+  const hitTargets = [];
 
   drawGrid(ctx, rect, 4, value => `${formatNumber((maxValue * value) / 4, 1)}`);
 
   day.hours.forEach(hour => {
+    if (!isVisible("pv")) return;
     const x = rect.x + hour.hour * barWidth;
     drawBar(ctx, rect, x + 2, barWidth - 4, hour.pv, maxValue, COLORS.blue);
+    hitTargets.push({
+      id: "pv",
+      label: "PV",
+      unit: "kWh/h",
+      type: "bar",
+      x: x + 2,
+      y: rect.y + rect.h - (hour.pv / maxValue) * rect.h,
+      w: barWidth - 4,
+      h: (hour.pv / maxValue) * rect.h,
+      hour: hour.hour,
+      value: hour.pv
+    });
   });
 
-  drawSeriesLine(ctx, rect, day.hours.map(hour => [hour.hour, hour.load]), maxValue, COLORS.vermillion);
-  drawSeriesLine(ctx, rect, day.hours.map(hour => [hour.hour, hour.exportKwh]), maxValue, COLORS.navy);
+  const series = [
+    { id: "load", label: "Load", color: COLORS.vermillion, unit: "kWh/h", points: day.hours.map(hour => [hour.hour, hour.load]) },
+    { id: "export", label: "Export", color: COLORS.navy, unit: "kWh/h", points: day.hours.map(hour => [hour.hour, hour.exportKwh]) }
+  ];
+  series.forEach(item => {
+    if (!isVisible(item.id)) return;
+    drawSeriesLine(ctx, rect, item.points, maxValue, item.color);
+    hitTargets.push({
+      id: item.id,
+      label: item.label,
+      unit: item.unit,
+      type: "line",
+      points: mapSeriesPoints(rect, item.points, maxValue),
+      values: item.points
+    });
+  });
 
   ctx.fillStyle = "#66716a";
   ctx.font = "12px Inter, system-ui, sans-serif";
@@ -120,48 +171,51 @@ export function renderHourlyChart(canvas, day) {
     ctx.fillText(`${hour}:00`, x, rect.y + rect.h + 24);
   });
 
-  drawLegend(ctx, [
-    [COLORS.blue, "PV"],
-    [COLORS.vermillion, "Load"],
-    [COLORS.navy, "Export"]
+  const legendBoxes = drawLegend(ctx, [
+    { id: "pv", color: COLORS.blue, label: "PV", disabled: !isVisible("pv") },
+    { id: "load", color: COLORS.vermillion, label: "Load", disabled: !isVisible("load") },
+    { id: "export", color: COLORS.navy, label: "Export", disabled: !isVisible("export") }
   ], rect.x, 16);
+
+  bindSeriesInteractions(canvas, legendBoxes, hitTargets, onToggleSeries);
 }
 
-export function renderBatteryChart(canvas, day) {
+/**
+ * Render selected-day battery state of charge.
+ * The visible series can be toggled through the legend, and the line itself is tooltip-only.
+ */
+export function renderBatteryChart(canvas, day, hiddenSeries = new Set(), onToggleSeries = () => {}) {
   const ctx = setupCanvas(canvas);
   const rect = chartRect(ctx.canvas, 42, 28, 34, 20);
   const points = day.hours.map(hour => [hour.hour, hour.batteryPercent || 0]);
+  const isVisible = id => !hiddenSeries.has(id);
+  const hitTargets = [];
 
   drawGrid(ctx, rect, 4, value => `${formatNumber((100 * value) / 4, 0)}%`);
-  drawSeriesLine(ctx, rect, points, 100, COLORS.battery, 4);
-  drawLegend(ctx, [[COLORS.battery, "Battery charge %"]], rect.x, 16);
+  if (isVisible("battery")) {
+    drawSeriesLine(ctx, rect, points, 100, COLORS.battery, 4);
+    hitTargets.push({
+      id: "battery",
+      label: "Battery charge",
+      unit: "%",
+      type: "line",
+      points: mapSeriesPoints(rect, points, 100),
+      values: points
+    });
+  }
+  const legendBoxes = drawLegend(ctx, [
+    { id: "battery", color: COLORS.battery, label: "Battery charge %", disabled: !isVisible("battery") }
+  ], rect.x, 16);
   drawTimeLabels(ctx, rect, rect.y + rect.h + 24);
 
-  canvas.onmousemove = event => {
-    const box = canvas.getBoundingClientRect();
-    const x = event.clientX - box.left;
-    const y = event.clientY - box.top;
-    if (x < rect.x || x > rect.x + rect.w || y < rect.y - 12 || y > rect.y + rect.h + 34) {
-      canvas.style.cursor = "default";
-      hideTooltip(canvas);
-      return;
-    }
-
-    const hour = Math.max(0, Math.min(23, Math.round(((x - rect.x) / rect.w) * 23)));
-    const value = day.hours.find(item => item.hour === hour)?.batteryPercent || 0;
-    canvas.style.cursor = "default";
-    showTooltip(canvas, x, y, [
-      "<strong>Battery charge</strong>",
-      `${formatHour(hour)}: ${formatNumber(value, 0)} %`
-    ]);
-  };
-
-  canvas.onmouseleave = () => {
-    hideTooltip(canvas);
-    canvas.style.cursor = "default";
-  };
+  bindSeriesInteractions(canvas, legendBoxes, hitTargets, onToggleSeries);
 }
 
+/**
+ * Render selected-day generation and weather.
+ * The top panel shows PV-related series. The lower panel uses left axis for cloud percentage
+ * and right axis for temperature, with rain shown as hourly bars.
+ */
 export function renderGenerationWeatherChart(canvas, day, hiddenSeries = new Set(), onToggleSeries = () => {}) {
   canvas.dataset.hiddenSeries = Array.from(hiddenSeries).sort().join(",");
   const ctx = setupCanvas(canvas);
@@ -173,32 +227,19 @@ export function renderGenerationWeatherChart(canvas, day, hiddenSeries = new Set
     h: 78
   };
   const maxPv = Math.max(1, ...day.hours.flatMap(hour => [
-    hour.theoreticalPv,
     hour.pv,
     hour.deliveredPv,
     hour.curtailed
   ])) * 1.18;
-  const maxIrradiance = Math.max(1000, ...day.hours.map(hour => hour.irradiance || 0));
   const maxRain = Math.max(2, ...day.hours.map(hour => hour.precipitation || 0)) * 1.15;
   const isVisible = id => !hiddenSeries.has(id);
 
   drawGrid(ctx, top, 4, value => `${formatNumber((maxPv * value) / 4, 1)}`);
-  drawRightAxis(ctx, top, 4, value => `${formatNumber((maxIrradiance * value) / 4, 0)}`);
   drawGrid(ctx, bottom, 2, value => `${formatNumber((100 * value) / 2, 0)}%`);
+  drawRightAxis(ctx, bottom, 2, value => `${formatNumber((40 * value) / 2, 0)}`);
 
   const hitTargets = [];
   const lineSeries = [
-    {
-      id: "theoretical",
-      label: "Theoretical potential",
-      color: COLORS.sky,
-      rect: top,
-      max: maxPv,
-      width: 2,
-      unit: "kWh/h",
-      points: day.hours.map(hour => [hour.hour, hour.theoreticalPv]),
-      fill: "rgba(86, 180, 233, 0.16)"
-    },
     {
       id: "rooftop",
       label: "Rooftop PV",
@@ -228,16 +269,6 @@ export function renderGenerationWeatherChart(canvas, day, hiddenSeries = new Set
       width: 2,
       unit: "kWh/h",
       points: day.hours.map(hour => [hour.hour, hour.curtailed])
-    },
-    {
-      id: "irradiance",
-      label: "Irradiance W/m2",
-      color: COLORS.purple,
-      rect: top,
-      max: maxIrradiance,
-      width: 2,
-      unit: "W/m2",
-      points: day.hours.map(hour => [hour.hour, hour.irradiance || 0])
     },
     {
       id: "cloud",
@@ -301,11 +332,9 @@ export function renderGenerationWeatherChart(canvas, day, hiddenSeries = new Set
 
   drawTimeLabels(ctx, top, canvasCssHeight(canvas) - 17);
   const legendBoxes = drawLegend(ctx, [
-    { id: "theoretical", color: COLORS.sky, label: "Theoretical potential", disabled: !isVisible("theoretical") },
     { id: "rooftop", color: COLORS.blue, label: "Rooftop PV", disabled: !isVisible("rooftop") },
     { id: "delivered", color: COLORS.navy, label: "After curtailment", disabled: !isVisible("delivered") },
     { id: "curtailed", color: COLORS.vermillion, label: "Curtailed", disabled: !isVisible("curtailed") },
-    { id: "irradiance", color: COLORS.purple, label: "Irradiance W/m2", disabled: !isVisible("irradiance") },
     { id: "cloud", color: COLORS.grey, label: "Cloud %", disabled: !isVisible("cloud") },
     { id: "temperature", color: COLORS.yellow, label: "Temp deg C", disabled: !isVisible("temperature") },
     { id: "rain", color: COLORS.black, label: "Rain mm/h", disabled: !isVisible("rain") }
@@ -315,7 +344,7 @@ export function renderGenerationWeatherChart(canvas, day, hiddenSeries = new Set
   ctx.font = "12px Inter, system-ui, sans-serif";
   ctx.textAlign = "left";
   ctx.fillText("PV", top.x, top.y + top.h + 18);
-  ctx.fillText("Meteo", bottom.x, bottom.y - 10);
+  drawAxisCaptions(ctx, bottom, "Cloud %", "Temp deg C");
 
   canvas.onclick = event => {
     const box = canvas.getBoundingClientRect();
@@ -329,7 +358,7 @@ export function renderGenerationWeatherChart(canvas, day, hiddenSeries = new Set
 
     const curveHit = findNearestSeriesHit(x, y, hitTargets);
     if (curveHit) {
-      onToggleSeries(curveHit.id);
+      showSeriesTooltip(canvas, curveHit, x, y);
     }
   };
 
@@ -340,10 +369,7 @@ export function renderGenerationWeatherChart(canvas, day, hiddenSeries = new Set
     const legendHit = legendBoxes.find(item => pointInRect(x, y, item));
     if (legendHit) {
       canvas.style.cursor = "pointer";
-      showTooltip(canvas, x, y, [
-        `<strong>${escapeHtml(legendHit.label)}</strong>`,
-        "Click to show/hide"
-      ]);
+      showToggleTooltip(canvas, legendHit, x, y);
       return;
     }
 
@@ -355,10 +381,7 @@ export function renderGenerationWeatherChart(canvas, day, hiddenSeries = new Set
     }
 
     canvas.style.cursor = "pointer";
-    showTooltip(canvas, x, y, [
-      `<strong>${escapeHtml(curveHit.label)}</strong>`,
-      `${formatHour(curveHit.hour)}: ${formatNumber(curveHit.value, curveHit.unit === "W/m2" || curveHit.unit === "%" ? 0 : 1)} ${curveHit.unit}`
-    ]);
+    showSeriesTooltip(canvas, curveHit, x, y);
   };
 
   canvas.onmouseleave = () => {
@@ -367,6 +390,73 @@ export function renderGenerationWeatherChart(canvas, day, hiddenSeries = new Set
   };
 }
 
+/**
+ * Shared pointer/touch interaction behavior for line/bar charts.
+ * Legend hits toggle visibility; chart-body hits only show values. This is important on touch
+ * devices because tap and hover are effectively the same gesture.
+ */
+function bindSeriesInteractions(canvas, legendBoxes, hitTargets, onToggleSeries) {
+  const handlePoint = (event, fromClick = false) => {
+    const box = canvas.getBoundingClientRect();
+    const x = event.clientX - box.left;
+    const y = event.clientY - box.top;
+    const legendHit = legendBoxes.find(item => pointInRect(x, y, item));
+    if (legendHit) {
+      canvas.style.cursor = "pointer";
+      if (fromClick) {
+        onToggleSeries(legendHit.id);
+      } else {
+        showToggleTooltip(canvas, legendHit, x, y);
+      }
+      return;
+    }
+
+    const seriesHit = findNearestSeriesHit(x, y, hitTargets);
+    if (seriesHit) {
+      canvas.style.cursor = "pointer";
+      showSeriesTooltip(canvas, seriesHit, x, y);
+      return;
+    }
+
+    canvas.style.cursor = "default";
+    hideTooltip(canvas);
+  };
+
+  canvas.onclick = event => handlePoint(event, true);
+  canvas.onmousemove = event => handlePoint(event, false);
+  canvas.onmouseleave = () => {
+    hideTooltip(canvas);
+    canvas.style.cursor = "default";
+  };
+}
+
+function showDailyTooltip(canvas, day, x, y) {
+  showTooltip(canvas, x, y, [
+    `<strong>${escapeHtml(day.label)}</strong>`,
+    `PV: ${formatNumber(day.pv, 1)} kWh`,
+    `Value: EUR ${formatNumber(day.totalValue, 2)}`,
+    `Saved: EUR ${formatNumber(day.savings, 2)}`,
+    `Feed-in: EUR ${formatNumber(day.earnings, 2)}`
+  ]);
+}
+
+function showToggleTooltip(canvas, legendHit, x, y) {
+  showTooltip(canvas, x, y, [
+    `<strong>${escapeHtml(legendHit.label)}</strong>`,
+    "Click to show/hide"
+  ]);
+}
+
+function showSeriesTooltip(canvas, seriesHit, x, y) {
+  showTooltip(canvas, x, y, [
+    `<strong>${escapeHtml(seriesHit.label)}</strong>`,
+    `${formatHour(seriesHit.hour)}: ${formatNumber(seriesHit.value, decimalsForUnit(seriesHit.unit))} ${seriesHit.unit}`
+  ]);
+}
+
+/**
+ * Reset and scale a canvas for high-DPI displays while preserving its CSS height.
+ */
 function setupCanvas(canvas) {
   const ratio = window.devicePixelRatio || 1;
   const width = canvas.clientWidth;
@@ -380,6 +470,9 @@ function setupCanvas(canvas) {
   return ctx;
 }
 
+/**
+ * Compute an inner plotting rectangle from canvas size and fixed margins.
+ */
 function chartRect(canvas, left, top, bottom, right) {
   return {
     x: left,
@@ -396,6 +489,9 @@ function canvasCssHeight(canvas) {
   return Number(canvas.dataset.cssHeight);
 }
 
+/**
+ * Draw horizontal grid lines and the left y-axis labels.
+ */
 function drawGrid(ctx, rect, steps, labelForStep) {
   ctx.strokeStyle = "#d9dfd8";
   ctx.lineWidth = 1;
@@ -550,6 +646,11 @@ function clampWeatherTemp(value) {
   return Math.max(0, Math.min(40, value));
 }
 
+function decimalsForUnit(unit) {
+  if (unit === "%" || unit === "deg C") return 0;
+  return 1;
+}
+
 function mapSeriesPoints(rect, points, maxValue) {
   return points.map(([hour, value]) => [
     rect.x + (hour / 23) * rect.w,
@@ -575,7 +676,9 @@ function findNearestSeriesHit(x, y, targets) {
       distance = nearest.distance;
       index = nearest.index;
     }
-    if (distance < 10 && (!best || distance < best.distance)) {
+    // Use a wider hit radius than a desktop hover target so finger taps on phones/tablets
+    // can still open the value tooltip without needing pixel-perfect placement.
+    if (distance < 18 && (!best || distance < best.distance)) {
       best = { target, distance, index };
     }
   });

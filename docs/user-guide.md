@@ -40,13 +40,13 @@ The four summary tiles show:
 The charts show:
 
 - `14 day outlook`: daily PV energy and daily euro value.
-- `Generation and weather`: selected-day theoretical PV potential, screenshot-calibrated rooftop PV, generation after curtailment, curtailed loss, tilted irradiance, cloud cover, temperature, and rain.
+- `Generation and weather`: selected-day rooftop PV, generation after curtailment, curtailed loss, cloud cover, temperature, and rain.
 - `Hourly flow`: selected-day PV production, household load, and grid export.
 - `Battery charge`: selected-day battery state of charge in percent.
 - `Day details`: selected-day totals, weather, import/export, curtailment, and ending battery state.
 - `Forecast table`: daily values for scanning and selecting a day, including total EUR value from savings plus feed-in earnings.
 
-In the `Generation and weather` chart, click a legend item to hide or show that series. You can also click near a visible curve to hide that curve directly. Hover over a visible curve to see the nearest hourly value.
+In the charts, click a legend item to hide or show that series. Click or hover near a visible curve or bar to see the nearest value. This keeps touch devices usable because tapping a curve opens the tooltip instead of hiding the series.
 
 In the `14 day outlook`, use the left y-axis for PV generation in kWh and the right y-axis for EUR value. Hover over a day to see exact generation, total value, savings, and feed-in earnings. Clicking a day selects it for the detailed charts below.
 
@@ -87,7 +87,7 @@ The forecast depends on Open-Meteo weather data. If the network request fails, t
 
 ## Rooftop Profile Calibration
 
-The default generation curve uses the screenshots from May 1, 2026 as a site profile. It keeps forecast output below about 1 kW before 10:00, opens the main production window after 10:00, and drops output sharply around 17:00. The theoretical potential curve remains available in the chart so you can compare actual modeled rooftop behavior with the weather-only potential. Battery charge level is shown separately below the hourly flow chart.
+The default generation curve uses the screenshots from May 1, 2026 as a site profile. Clear days keep forecast output below about 1 kW before 10:00, open the main production window after 10:00, and drop output sharply around 17:00. Cloudy days blend toward a smoother diffuse-light profile. Battery charge level is shown separately below the hourly flow chart.
 
 ## Accessibility
 

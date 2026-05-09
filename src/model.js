@@ -1,6 +1,17 @@
 import { CALIBRATION, CLOUD_RESPONSE, DEFAULTS, LOCATION, ROOFTOP_PROFILE } from "./config.js";
 import { clamp, dayOfYear, formatDay, toRad, valueAt } from "./utils.js";
 
+/**
+ * Convert a raw Open-Meteo forecast payload into SolarGen day models.
+ *
+ * Input:
+ * - `forecast.daily`: one row per local day with summary weather fields.
+ * - `forecast.hourly`: one row per local hour with irradiance, cloud, rain, and temperature.
+ * - `settings`: user-adjustable system assumptions such as kWp, battery size, tariff, and load.
+ *
+ * Output:
+ * - an array of day objects containing hourly PV, battery, export/import, curtailment, and value fields.
+ */
 export function simulateForecast(forecast, settings = DEFAULTS) {
   const daily = forecast.daily;
   const hourly = forecast.hourly;
@@ -11,9 +22,16 @@ export function simulateForecast(forecast, settings = DEFAULTS) {
   return daily.time.map((date, dayIndex) => {
     const hours = (grouped.get(date) || []).map(hour => {
       const irradiance = hour.irradiance ?? fallbackIrradiance(date, hour.hour, settings.tilt, hour.cloudCover);
+
+      // Open-Meteo's tilted irradiance was too pessimistic on the first high-cloud actuals.
+      // The correction is deliberately hour-local and conservative: it lifts diffuse/cloudy
+      // low-irradiance hours while leaving clear hours unchanged.
       const correctedIrradiance = cloudAdjustedIrradiance(irradiance, hour.cloudCover);
       const tempFactor = pvTemperatureFactor(correctedIrradiance, hour.temperature);
       const theoreticalPv = Math.max(0, (correctedIrradiance / 1000) * settings.capacity * calibrationScale * tempFactor);
+
+      // Rooftop behavior is weather-dependent: clear days keep the observed step profile,
+      // cloudy days blend toward a smoother diffuse-light profile.
       const pv = applyRooftopProfile(theoreticalPv, hour.hour, settings, hour.cloudCover);
       const curtailed = Math.max(0, pv - settings.feedCap);
       const deliveredPv = pv - curtailed;
@@ -70,6 +88,10 @@ export function simulateForecast(forecast, settings = DEFAULTS) {
   });
 }
 
+/**
+ * Group Open-Meteo hourly arrays by local date and normalize field names.
+ * Returns a Map keyed by `yyyy-mm-dd`, each value containing 24-ish hourly objects.
+ */
 export function groupHourlyForecast(hourly) {
   const grouped = new Map();
   hourly.time.forEach((iso, index) => {
@@ -91,6 +113,9 @@ export function groupHourlyForecast(hourly) {
   return grouped;
 }
 
+/**
+ * Sum hourly simulation records into daily totals used by summary cards, tables, and charts.
+ */
 export function sumHours(hours) {
   return hours.reduce((acc, hour) => {
     acc.pv += hour.pv;
@@ -122,6 +147,10 @@ export function sumHours(hours) {
   });
 }
 
+/**
+ * Synthetic household load profile in kWh/h.
+ * Inputs are three sliders: base demand, daytime extra demand, and evening extra demand.
+ */
 export function householdLoad(hour, settings = DEFAULTS) {
   let load = settings.baseLoad;
   if (hour >= 8 && hour < 18) load += settings.dayLoad;
@@ -130,6 +159,10 @@ export function householdLoad(hour, settings = DEFAULTS) {
   return load;
 }
 
+/**
+ * Solve a single scale factor so the clear-sky May 1 calibration day reproduces 50.23 kWh.
+ * This keeps the model anchored to the measured full-sun screenshot before weather corrections.
+ */
 export function calculateCalibrationScale() {
   const baseHourly = Array.from({ length: 24 }, (_, hour) => {
     const irradiance = clearSkyPoa(CALIBRATION.date, hour, DEFAULTS.tilt);
@@ -152,6 +185,17 @@ export function calculateCalibrationScale() {
   return (low + high) / 2;
 }
 
+/**
+ * Apply the site-specific rooftop shape to a weather-adjusted theoretical PV value.
+ *
+ * Inputs:
+ * - `theoreticalPv`: hourly kWh/h before site profile.
+ * - `hour`: local hour 0-23.
+ * - `cloudCover`: hourly cloud cover percent.
+ *
+ * Output:
+ * - rooftop PV before feed-in curtailment.
+ */
 export function applyRooftopProfile(theoreticalPv, hour, settings = DEFAULTS, cloudCover = 0) {
   if (theoreticalPv <= 0) return 0;
   const sunnyOutput = applySunnyRooftopProfile(theoreticalPv, hour, settings);
@@ -163,6 +207,8 @@ export function applyRooftopProfile(theoreticalPv, hour, settings = DEFAULTS, cl
 
   if (diffuseWeight <= 0) return sunnyOutput;
 
+  // Diffuse light from cloudy skies softens the morning and evening shading/string effects.
+  // A smooth daylight window captures that with few parameters and avoids fitting noise.
   const centerHour = hour + 0.5;
   const diffuseMorning = smoothstep(
     ROOFTOP_PROFILE.diffuseMorningRampStartHour,
@@ -179,6 +225,10 @@ export function applyRooftopProfile(theoreticalPv, hour, settings = DEFAULTS, cl
   return sunnyOutput * (1 - diffuseWeight) + diffuseOutput * diffuseWeight;
 }
 
+/**
+ * Clear/direct-light profile derived from the sunny screenshots.
+ * It intentionally creates a step around late morning and a sharp evening drop.
+ */
 function applySunnyRooftopProfile(theoreticalPv, hour, settings = DEFAULTS) {
   const lowCap = Math.min(ROOFTOP_PROFILE.lowOutputCapKw, settings.capacity);
   const lowOutput = Math.min(theoreticalPv * ROOFTOP_PROFILE.lowOutputFactor, lowCap);
@@ -200,17 +250,29 @@ function applySunnyRooftopProfile(theoreticalPv, hour, settings = DEFAULTS) {
   return theoreticalPv;
 }
 
+/**
+ * Smooth interpolation helper used for cloud blending and diffuse-light daylight windows.
+ * Returns 0 below `edge0`, 1 above `edge1`, and a smooth cubic transition in between.
+ */
 function smoothstep(edge0, edge1, value) {
   if (edge0 === edge1) return value >= edge1 ? 1 : 0;
   const progress = clamp((value - edge0) / (edge1 - edge0), 0, 1);
   return progress * progress * (3 - 2 * progress);
 }
 
+/**
+ * Estimate module temperature derating from irradiance and ambient temperature.
+ * Returns a bounded multiplier, not an absolute temperature.
+ */
 export function pvTemperatureFactor(irradiance, ambientTemperature) {
   const panelTemp = ambientTemperature + (Math.max(0, irradiance) / 800) * 20;
   return clamp(1 - 0.0035 * (panelTemp - 25), 0.82, 1.06);
 }
 
+/**
+ * Empirical correction for high-cloud hours where Open-Meteo tilted irradiance under-forecast
+ * the actual generation. Clear hours return the original irradiance unchanged.
+ */
 export function cloudAdjustedIrradiance(irradiance, cloudCover) {
   if (irradiance <= 0) return 0;
   const cloud = clamp((cloudCover || 0) / 100, 0, 1);
@@ -225,12 +287,20 @@ export function cloudAdjustedIrradiance(irradiance, cloudCover) {
   return irradiance * multiplier;
 }
 
+/**
+ * Deterministic fallback irradiance for offline mode. It starts from local clear-sky POA
+ * and applies a simple cloud attenuation curve.
+ */
 export function fallbackIrradiance(date, hour, tilt, cloudCover) {
   const clear = clearSkyPoa(date, hour, tilt);
   const cloudFactor = clamp(1 - 0.72 * Math.pow(cloudCover / 100, 1.35), 0.08, 1);
   return clear * cloudFactor;
 }
 
+/**
+ * Clear-sky plane-of-array irradiance approximation for the configured south-facing roof.
+ * Used for the full-sun calibration and for offline fallback forecasts.
+ */
 export function clearSkyPoa(dateString, hour, tiltDeg) {
   const lat = toRad(LOCATION.latitude);
   const tilt = toRad(tiltDeg);

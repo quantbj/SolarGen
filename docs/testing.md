@@ -82,8 +82,8 @@ npm run check
 5. Change roof tilt and confirm the forecast refreshes.
 6. Change feed-in cap and confirm exported/curtailed values update.
 7. Select a forecast table row and confirm day details and hourly chart update.
-8. Click generation/weather legend items and visible curves, then confirm the selected series hides and reappears.
-9. Hover daily bars and generation/weather curves, then confirm tooltips show exact values.
+8. Click chart legend items, then confirm the selected series hides and reappears.
+9. Hover or click daily bars, hourly lines, battery lines, and generation/weather curves, then confirm tooltips show exact values without hiding the curve itself.
 
 ## Current Verification Notes
 
