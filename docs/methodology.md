@@ -95,7 +95,7 @@ Assumptions:
 
 The screenshots show that generation starts around 06:00 but remains below roughly 1 kW until about 10:00, then rises sharply to the curtailed range. Output drops sharply again around 17:00.
 
-To reflect this, SolarGen applies a site profile after theoretical PV is calculated:
+To reflect this on clear days, SolarGen applies a site profile after theoretical PV is calculated:
 
 - before 10:00, output is limited to a low-output branch
 - from 10:00 until late afternoon, output follows the theoretical curve
@@ -107,9 +107,34 @@ The low-output branch is:
 low_output = min(theoretical * 0.14, 0.95 kW)
 ```
 
+The actuals also show that cloudy days have a smoother shape: diffuse light reduces the hard late-morning step and the evening drop. SolarGen therefore blends two simple profiles hour by hour:
+
+```text
+rooftop_pv = sunny_profile * (1 - diffuse_weight)
+           + diffuse_profile * diffuse_weight
+```
+
+The diffuse weight depends only on cloud cover:
+
+```text
+diffuse_weight = smoothstep(50%, 95%, cloud_cover_pct)
+```
+
+The cloudy/diffuse profile is a smooth daylight window:
+
+```text
+diffuse_profile = theoretical_pv
+                * smoothstep(07:00, 12:00, hour_center)
+                * (1 - smoothstep(16:00, 20:00, hour_center))
+                * 0.85
+```
+
+This keeps the clear-day step behavior, but on high-cloud days generation ramps gradually through the morning and decays gradually in the evening.
+
 Assumptions:
 
 - This profile captures shading, inverter/string behavior, or roof/string layout effects visible in the sample data.
+- High cloud cover implies a larger diffuse-light component, so shaded and non-ideal string geometry matter less.
 - The profile is deliberately empirical and can be recalibrated once more actual days are available.
 
 ## Curtailment

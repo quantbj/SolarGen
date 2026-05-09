@@ -92,14 +92,16 @@ The calibration scale is derived from the local clear-sky model so the default 1
 
 The model includes an empirical cloud response uplift fitted from the first stored actual-vs-forecast comparisons. It is capped at `2.0x` for high-cloud, low-irradiance hours and is zero for clear hours, so the full-sun calibration remains anchored while overcast days are no longer systematically under-forecast.
 
-The model then applies a screenshot-calibrated rooftop profile. This profile reflects the observed behavior from May 1, 2026:
+The model then applies a screenshot-calibrated rooftop profile. On clear hours this profile reflects the observed behavior from May 1, 2026:
 
 - generation starts around 06:00
 - output stays below roughly 1 kW before 10:00
 - the main production window opens from 10:00 through late afternoon
 - output drops sharply around 17:00
 
-This keeps the forecast tied to the actual installation behavior instead of assuming an unobstructed smooth bell curve.
+For cloudy hours, the model blends toward a smoother diffuse-light profile. This uses cloud cover as the blend weight, preserving the clear-day step while avoiding an unrealistic step change on overcast days.
+
+This keeps the forecast tied to the actual installation behavior instead of assuming one unobstructed smooth bell curve or one fixed step profile for every weather condition.
 
 ## Battery and Export Model
 

@@ -14,7 +14,7 @@ export function simulateForecast(forecast, settings = DEFAULTS) {
       const correctedIrradiance = cloudAdjustedIrradiance(irradiance, hour.cloudCover);
       const tempFactor = pvTemperatureFactor(correctedIrradiance, hour.temperature);
       const theoreticalPv = Math.max(0, (correctedIrradiance / 1000) * settings.capacity * calibrationScale * tempFactor);
-      const pv = applyRooftopProfile(theoreticalPv, hour.hour, settings);
+      const pv = applyRooftopProfile(theoreticalPv, hour.hour, settings, hour.cloudCover);
       const curtailed = Math.max(0, pv - settings.feedCap);
       const deliveredPv = pv - curtailed;
       const load = householdLoad(hour.hour, settings);
@@ -152,8 +152,34 @@ export function calculateCalibrationScale() {
   return (low + high) / 2;
 }
 
-export function applyRooftopProfile(theoreticalPv, hour, settings = DEFAULTS) {
+export function applyRooftopProfile(theoreticalPv, hour, settings = DEFAULTS, cloudCover = 0) {
   if (theoreticalPv <= 0) return 0;
+  const sunnyOutput = applySunnyRooftopProfile(theoreticalPv, hour, settings);
+  const diffuseWeight = smoothstep(
+    ROOFTOP_PROFILE.diffuseCloudStartPct,
+    ROOFTOP_PROFILE.diffuseCloudFullPct,
+    cloudCover || 0
+  );
+
+  if (diffuseWeight <= 0) return sunnyOutput;
+
+  const centerHour = hour + 0.5;
+  const diffuseMorning = smoothstep(
+    ROOFTOP_PROFILE.diffuseMorningRampStartHour,
+    ROOFTOP_PROFILE.diffuseMorningFullHour,
+    centerHour
+  );
+  const diffuseEvening = 1 - smoothstep(
+    ROOFTOP_PROFILE.diffuseEveningRampStartHour,
+    ROOFTOP_PROFILE.diffuseEveningEndHour,
+    centerHour
+  );
+  const diffuseOutput = theoreticalPv * diffuseMorning * diffuseEvening * ROOFTOP_PROFILE.diffuseOutputFactor;
+
+  return sunnyOutput * (1 - diffuseWeight) + diffuseOutput * diffuseWeight;
+}
+
+function applySunnyRooftopProfile(theoreticalPv, hour, settings = DEFAULTS) {
   const lowCap = Math.min(ROOFTOP_PROFILE.lowOutputCapKw, settings.capacity);
   const lowOutput = Math.min(theoreticalPv * ROOFTOP_PROFILE.lowOutputFactor, lowCap);
 
@@ -172,6 +198,12 @@ export function applyRooftopProfile(theoreticalPv, hour, settings = DEFAULTS) {
   }
 
   return theoreticalPv;
+}
+
+function smoothstep(edge0, edge1, value) {
+  if (edge0 === edge1) return value >= edge1 ? 1 : 0;
+  const progress = clamp((value - edge0) / (edge1 - edge0), 0, 1);
+  return progress * progress * (3 - 2 * progress);
 }
 
 export function pvTemperatureFactor(irradiance, ambientTemperature) {

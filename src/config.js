@@ -15,7 +15,14 @@ export const ROOFTOP_PROFILE = {
   eveningDropHour: 17,
   lowOutputCapKw: 0.95,
   lowOutputFactor: 0.14,
-  eveningTransitionHours: 0.5
+  eveningTransitionHours: 0.5,
+  diffuseCloudStartPct: 50,
+  diffuseCloudFullPct: 95,
+  diffuseMorningRampStartHour: 7,
+  diffuseMorningFullHour: 12,
+  diffuseEveningRampStartHour: 16,
+  diffuseEveningEndHour: 20,
+  diffuseOutputFactor: 0.85
 };
 
 export const CLOUD_RESPONSE = {

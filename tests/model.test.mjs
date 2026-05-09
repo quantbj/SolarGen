@@ -97,6 +97,20 @@ test("rooftop profile matches observed morning and evening suppression", () => {
   assert.ok(evening <= 0.95);
 });
 
+test("high-cloud rooftop profile uses a smoother diffuse-light ramp", () => {
+  const clearMorning = applyRooftopProfile(4.8, 9, DEFAULTS, 0);
+  const cloudyMorning = applyRooftopProfile(4.8, 9, DEFAULTS, 100);
+  const clearEvening = applyRooftopProfile(4.8, 17, DEFAULTS, 0);
+  const cloudyEvening = applyRooftopProfile(4.8, 17, DEFAULTS, 100);
+
+  assert.ok(clearMorning <= 0.95);
+  assert.ok(cloudyMorning > clearMorning);
+  assert.ok(cloudyMorning < 4.8);
+  assert.ok(clearEvening <= 0.95);
+  assert.ok(cloudyEvening > clearEvening);
+  assert.ok(cloudyEvening < 4.8);
+});
+
 test("clear full-sun modeled rooftop generation calibrates to the measured screenshot day", () => {
   const forecast = oneDayForecast({
     irradianceByHour: hour => clearSkyPoa("2026-05-01", hour, DEFAULTS.tilt),
@@ -130,12 +144,19 @@ test("recalibrated cloud response improves stored cloudy-day underforecast patte
     cloudByHour: hour => STORED_MAY5.cloud[hour],
     irradianceByHour: hour => STORED_MAY5.irradiance[hour]
   });
+  const may8 = oneDayForecast({
+    date: "2026-05-08",
+    cloudByHour: hour => STORED_MAY8.cloud[hour],
+    irradianceByHour: hour => STORED_MAY8.irradiance[hour]
+  });
 
   const [may4Day] = simulateForecast(may4, noLoadSettings());
   const [may5Day] = simulateForecast(may5, noLoadSettings());
+  const [may8Day] = simulateForecast(may8, noLoadSettings());
 
   assert.ok(Math.abs(may4Day.pv - 36.41) < 1.5);
   assert.ok(Math.abs(may5Day.pv - 14.47) < 1.0);
+  assert.ok(Math.abs(may8Day.pv - 55.15) < 1.5);
 });
 
 test("battery storage reduces evening grid import after midday surplus and reports state of charge percent", () => {
@@ -300,4 +321,9 @@ const STORED_MAY4 = {
 const STORED_MAY5 = {
   irradiance: [0, 0, 0, 0, 0, 0, 0, 7, 27, 40, 76, 132, 87, 90, 119, 126, 108, 194, 148, 82, 32, 7, 0, 0],
   cloud: [100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 98, 100, 100, 100, 100, 100, 98, 98, 97, 100, 100, 100, 100, 100]
+};
+
+const STORED_MAY8 = {
+  irradiance: [0, 0, 0, 0, 0, 0, 2, 36, 128, 324, 538, 734, 888, 982, 1008, 962, 851, 619, 403, 232, 82, 20, 0, 0],
+  cloud: [0, 15, 37, 0, 7, 15, 13, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 73, 62, 46, 13, 0, 0, 0]
 };
