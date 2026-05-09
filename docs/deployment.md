@@ -45,6 +45,7 @@ Run these commands before publishing:
 ```sh
 npm run check
 npm test
+npm run coverage
 python3 -m http.server 4173
 ```
 

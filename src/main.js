@@ -1,18 +1,20 @@
-import { DEFAULTS, LOCATION } from "./config.js?v=20260509-touch-tooltips";
-import { renderBatteryChart, renderDailyChart, renderGenerationWeatherChart, renderHourlyChart } from "./charts.js?v=20260509-touch-tooltips";
-import { simulateForecast } from "./model.js?v=20260509-touch-tooltips";
-import { buildFallbackForecast, fetchOpenMeteoForecast } from "./weather.js?v=20260509-touch-tooltips";
-import { debounce, formatMoney, formatNumber } from "./utils.js?v=20260509-touch-tooltips";
+import { DEFAULTS, LOCATION } from "./config.js";
+import { renderBatteryChart, renderDailyChart, renderGenerationWeatherChart, renderHourlyChart } from "./charts.js";
+import { simulateForecast } from "./model.js";
+import { buildFallbackForecast, fetchOpenMeteoForecast } from "./weather.js";
+import { debounce, formatMoney, formatNumber } from "./utils.js";
 
 const state = {
   forecast: null,
   days: [],
   selectedIndex: 0,
   settings: { ...DEFAULTS },
-  hiddenDailySeries: new Set(),
-  hiddenGenerationWeatherSeries: new Set(),
-  hiddenHourlySeries: new Set(),
-  hiddenBatterySeries: new Set()
+  hiddenSeries: {
+    daily: new Set(),
+    generationWeather: new Set(),
+    hourly: new Set(),
+    battery: new Set()
+  }
 };
 
 const els = {
@@ -167,26 +169,26 @@ function render() {
       state.selectedIndex = index;
       render();
     },
-    state.hiddenDailySeries,
-    seriesId => toggleSeries(state.hiddenDailySeries, seriesId)
+    state.hiddenSeries.daily,
+    seriesId => toggleSeries("daily", seriesId)
   );
   renderGenerationWeatherChart(
     els.generationWeatherChart,
     state.days[state.selectedIndex],
-    state.hiddenGenerationWeatherSeries,
-    seriesId => toggleSeries(state.hiddenGenerationWeatherSeries, seriesId)
+    state.hiddenSeries.generationWeather,
+    seriesId => toggleSeries("generationWeather", seriesId)
   );
   renderHourlyChart(
     els.hourlyChart,
     state.days[state.selectedIndex],
-    state.hiddenHourlySeries,
-    seriesId => toggleSeries(state.hiddenHourlySeries, seriesId)
+    state.hiddenSeries.hourly,
+    seriesId => toggleSeries("hourly", seriesId)
   );
   renderBatteryChart(
     els.batteryChart,
     state.days[state.selectedIndex],
-    state.hiddenBatterySeries,
-    seriesId => toggleSeries(state.hiddenBatterySeries, seriesId)
+    state.hiddenSeries.battery,
+    seriesId => toggleSeries("battery", seriesId)
   );
   els.generationWeatherTitle.textContent = `Generation and weather: ${state.days[state.selectedIndex].label}`;
   renderDetails();
@@ -196,7 +198,8 @@ function render() {
 /**
  * Toggle one chart series and redraw. Each chart owns a separate hidden-series set.
  */
-function toggleSeries(hiddenSeries, seriesId) {
+function toggleSeries(chartId, seriesId) {
+  const hiddenSeries = state.hiddenSeries[chartId];
   if (hiddenSeries.has(seriesId)) {
     hiddenSeries.delete(seriesId);
   } else {

@@ -24,6 +24,8 @@ class HistoryHandler(SimpleHTTPRequestHandler):
             run_id = int(parse_qs(parsed.query).get("id", ["0"])[0])
             detail = forecast_detail(db(), run_id)
             return self.send_json(detail or {"error": "not found"}, status=200 if detail else 404)
+        if parsed.path.startswith("/shared/"):
+            return self.serve_shared_module(parsed.path)
         return super().do_GET()
 
     def do_POST(self):
@@ -68,6 +70,18 @@ class HistoryHandler(SimpleHTTPRequestHandler):
         data = json.dumps(payload, indent=2).encode("utf-8")
         self.send_response(status)
         self.send_header("content-type", "application/json; charset=utf-8")
+        self.send_header("content-length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def serve_shared_module(self, path: str):
+        module_name = Path(path).name
+        if module_name not in {"chartCore.js", "utils.js"}:
+            return self.send_json({"error": "not found"}, status=404)
+        module_path = ROOT / "src" / module_name
+        data = module_path.read_bytes()
+        self.send_response(200)
+        self.send_header("content-type", "application/javascript; charset=utf-8")
         self.send_header("content-length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)

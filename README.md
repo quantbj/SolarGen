@@ -20,14 +20,21 @@ SolarGen is a static browser app for forecasting rooftop PV production, self-con
 │   ├── server.py
 │   └── static/
 ├── src/
+│   ├── chartCore.js
 │   ├── charts.js
 │   ├── config.js
+│   ├── historyForecast.js
+│   ├── historyForecastCli.mjs
 │   ├── main.js
 │   ├── model.js
 │   ├── utils.js
 │   └── weather.js
 ├── tests/
-│   └── model.test.mjs
+│   ├── chart_core.test.mjs
+│   ├── chart_renderers.test.mjs
+│   ├── history_chart_height.test.mjs
+│   ├── model.test.mjs
+│   └── test_history_app.py
 ├── .nojekyll
 ├── index.html
 ├── netlify.toml
@@ -78,8 +85,11 @@ Run syntax checks:
 ```sh
 node --check src/config.js
 node --check src/utils.js
+node --check src/chartCore.js
 node --check src/model.js
 node --check src/weather.js
+node --check src/historyForecast.js
+node --check src/historyForecastCli.mjs
 node --check src/charts.js
 node --check src/main.js
 ```
@@ -102,6 +112,7 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 ```sh
 npm run check
 npm test
+npm run coverage
 npm start
 ```
 

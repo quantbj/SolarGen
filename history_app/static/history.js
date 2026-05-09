@@ -1,3 +1,13 @@
+import {
+  COLORS,
+  chartRect,
+  drawGrid,
+  drawLegend,
+  drawSeriesLine,
+  drawTimeLabels,
+  setupCanvas
+} from '/shared/chartCore.js';
+
 const state = { comparisons: [], selectedId: null, detail: null };
 const els = {
   captureBtn: document.getElementById('captureBtn'),
@@ -149,46 +159,19 @@ function renderChart() {
 
 function drawChart(forecast, actual) {
   const canvas = els.chart;
-  const ratio = window.devicePixelRatio || 1;
-  const height = chartBaseHeight(canvas);
-  canvas.style.height = `${height}px`;
-  const width = canvas.clientWidth;
-  canvas.width = Math.floor(width * ratio);
-  canvas.height = Math.floor(height * ratio);
-  const ctx = canvas.getContext('2d');
-  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-  ctx.clearRect(0, 0, width, height);
-  const rect = { x: 44, y: 28, w: width - 68, h: height - 66 };
+  const ctx = setupCanvas(canvas);
+  const rect = chartRect(canvas, 44, 28, 38, 24);
   const max = Math.max(1, ...forecast, ...actual.filter(Number.isFinite)) * 1.2;
-  ctx.strokeStyle = '#d9dfd8'; ctx.fillStyle = '#66716a'; ctx.font = '12px system-ui'; ctx.textAlign = 'right';
-  for (let step = 0; step <= 4; step++) {
-    const y = rect.y + rect.h - rect.h * step / 4;
-    ctx.beginPath(); ctx.moveTo(rect.x, y); ctx.lineTo(rect.x + rect.w, y); ctx.stroke();
-    ctx.fillText(fmt(max * step / 4, 1), rect.x - 8, y + 4);
+  drawGrid(ctx, rect, 4, step => fmt(max * step / 4, 1));
+  drawSeriesLine(ctx, rect, forecast.map((value, hour) => [hour, value]), max, COLORS.blue, 3);
+  if (actual.some(Number.isFinite)) {
+    drawSeriesLine(ctx, rect, actual.map((value, hour) => [hour, value ?? 0]), max, COLORS.purple, 3);
   }
-  line(ctx, rect, forecast.map((value, hour) => [hour, value]), max, '#0072b2', 3);
-  if (actual.some(Number.isFinite)) line(ctx, rect, actual.map((value, hour) => [hour, value ?? 0]), max, '#cc79a7', 3);
-  ctx.textAlign = 'center'; ctx.fillStyle = '#66716a';
-  [0, 6, 12, 18, 23].forEach(hour => ctx.fillText(`${hour}:00`, rect.x + rect.w * hour / 23, rect.y + rect.h + 26));
-  legend(ctx, rect.x, 16, '#0072b2', 'Forecast'); legend(ctx, rect.x + 112, 16, '#cc79a7', 'Actual');
-}
-
-function line(ctx, rect, points, max, color, width) {
-  ctx.strokeStyle = color; ctx.lineWidth = width; ctx.beginPath();
-  points.forEach(([hour, value], index) => {
-    const x = rect.x + rect.w * hour / 23;
-    const y = rect.y + rect.h - rect.h * value / max;
-    if (index === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-  });
-  ctx.stroke();
-}
-
-function legend(ctx, x, y, color, label) { ctx.fillStyle = color; ctx.fillRect(x, y - 8, 12, 12); ctx.fillStyle = '#66716a'; ctx.textAlign = 'left'; ctx.fillText(label, x + 18, y + 2); }
-function chartBaseHeight(canvas) {
-  if (!canvas.dataset.baseHeight) {
-    canvas.dataset.baseHeight = canvas.getAttribute('height') || '320';
-  }
-  return Number(canvas.dataset.baseHeight);
+  drawTimeLabels(ctx, rect, rect.y + rect.h + 26);
+  drawLegend(ctx, [
+    { id: 'forecast', color: COLORS.blue, label: 'Forecast' },
+    { id: 'actual', color: COLORS.purple, label: 'Actual', disabled: !actual.some(Number.isFinite) }
+  ], rect.x, 16);
 }
 async function fetchJson(url, options = {}) { let res; try { res = await fetch(url, { headers: { 'content-type': 'application/json' }, ...options }); } catch (error) { throw new Error('Cannot reach the local SolarGen history server. Start it with: python3 -m history_app.server'); } const data = await res.json(); if (!res.ok) throw new Error(data.error || res.statusText); return data; }
 function setMessage(text, error = false) { els.message.textContent = text; els.message.classList.toggle('error', error); }

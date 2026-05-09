@@ -11,6 +11,8 @@ import {
   simulateForecast
 } from "../src/model.js";
 import { buildFallbackForecast, buildForecastUrl, fetchOpenMeteoForecast } from "../src/weather.js";
+import { buildHistoryForecastUrl, captureDayAheadForecast } from "../src/historyForecast.js";
+import { debounce, formatDay, formatMoney, formatNumber, valueAt } from "../src/utils.js";
 
 test("clear-sky model produces no irradiance at night and meaningful midday irradiance", () => {
   const night = clearSkyPoa("2026-05-01", 2, DEFAULTS.tilt);
@@ -244,6 +246,51 @@ test("Open-Meteo URL requests tilted solar and weather forecast inputs", () => {
   assert.match(url.searchParams.get("hourly"), /precipitation/);
 });
 
+test("history capture selects the day-ahead forecast and serializes hourly values", () => {
+  const forecast = {
+    hourly: {
+      time: [],
+      temperature_2m: [],
+      cloud_cover: [],
+      precipitation: [],
+      global_tilted_irradiance: [],
+      is_day: [],
+      weather_code: []
+    },
+    daily: {
+      time: ["2026-05-09", "2026-05-10"],
+      weather_code: [0, 2],
+      temperature_2m_max: [18, 20],
+      temperature_2m_min: [8, 10],
+      precipitation_sum: [0, 0.4],
+      cloud_cover_mean: [10, 35],
+      sunshine_duration: [36000, 28000]
+    }
+  };
+  for (const date of forecast.daily.time) {
+    for (let hour = 0; hour < 24; hour += 1) {
+      forecast.hourly.time.push(`${date}T${String(hour).padStart(2, "0")}:00`);
+      forecast.hourly.temperature_2m.push(18);
+      forecast.hourly.cloud_cover.push(20);
+      forecast.hourly.precipitation.push(0);
+      forecast.hourly.global_tilted_irradiance.push(hour >= 10 && hour <= 15 ? 800 : 0);
+      forecast.hourly.is_day.push(hour >= 6 && hour <= 20 ? 1 : 0);
+      forecast.hourly.weather_code.push(1);
+    }
+  }
+
+  const snapshot = captureDayAheadForecast({
+    forecast,
+    now: new Date("2026-05-09T08:00:00+02:00")
+  });
+
+  assert.equal(snapshot.issued_date, "2026-05-09");
+  assert.equal(snapshot.target_date, "2026-05-10");
+  assert.equal(snapshot.hours.length, 24);
+  assert.ok(snapshot.forecast_total_kwh > 0);
+  assert.match(buildHistoryForecastUrl({ tilt: 40 }, 2), /forecast_days=2/);
+});
+
 
 test("Open-Meteo request times out instead of hanging indefinitely", async () => {
   await assert.rejects(
@@ -254,6 +301,20 @@ test("Open-Meteo request times out instead of hanging indefinitely", async () =>
     }), 1),
     /Forecast request timed out/
   );
+});
+
+test("formatting helpers produce compact app labels", async () => {
+  assert.equal(formatDay("2026-05-09"), "Sat 09/05");
+  assert.equal(formatNumber(1.234, 1), "1.2");
+  assert.equal(formatMoney(3.456), "EUR 3.46");
+  assert.equal(valueAt([1], 1, 7), 7);
+
+  let calls = 0;
+  const debounced = debounce(() => { calls += 1; }, 1);
+  debounced();
+  debounced();
+  await new Promise(resolve => setTimeout(resolve, 5));
+  assert.equal(calls, 1);
 });
 
 test("fallback forecast has the expected 14 day hourly shape", () => {

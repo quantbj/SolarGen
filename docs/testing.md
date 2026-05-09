@@ -2,7 +2,7 @@
 
 ## Test Scope
 
-The automated tests focus on the business logic in `src/model.js` and forecast request construction in `src/weather.js`.
+The automated tests cover the forecast model, Open-Meteo request construction, shared chart primitives, forecast chart renderers, the day-ahead history adapter, and the local SQLite history app.
 
 Covered behavior:
 
@@ -27,8 +27,10 @@ Covered behavior:
 - local history snapshots produce 24 hourly forecast records
 - local history snapshots call the shared JavaScript forecast model through the Python adapter
 - SQLite stores forecast snapshots, actuals, and comparison metrics
+- shared canvas chart helpers keep stable high-DPI sizing, legend hit boxes, tooltip escaping, and line/bar hit testing
+- forecast chart renderers wire legend toggles separately from value tooltips
 
-Canvas drawing and visual layout are smoke-tested in the browser rather than unit-tested.
+Full visual layout is still smoke-tested in the browser, but chart geometry and interaction wiring are unit-tested.
 
 ## Run Tests
 
@@ -47,6 +49,14 @@ npm test
 
 The `npm test` script runs both the JavaScript and Python test suites.
 
+Coverage gate:
+
+```sh
+npm run coverage
+```
+
+The coverage command enforces at least 90% JavaScript line coverage for the covered source modules and reports Python line coverage with the standard-library `trace` tool. Current Python history modules report 90% line coverage.
+
 ## Syntax Checks
 
 Direct Node commands:
@@ -54,6 +64,7 @@ Direct Node commands:
 ```sh
 node --check src/config.js
 node --check src/utils.js
+node --check src/chartCore.js
 node --check src/model.js
 node --check src/weather.js
 node --check src/historyForecast.js

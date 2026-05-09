@@ -3,8 +3,8 @@ import unittest
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from history_app.database import forecast_detail, init_db, list_comparisons, parse_hourly_values, parse_number, save_actual, save_forecast_run
-from history_app.forecast_model import LOCATION, capture_day_ahead_forecast
+from history_app.database import forecast_detail, hourly_error_metrics, init_db, list_comparisons, parse_hourly_values, parse_number, save_actual, save_forecast_run
+from history_app.forecast_model import LOCATION, build_forecast_url, capture_day_ahead_forecast
 
 
 class HistoryAppTest(unittest.TestCase):
@@ -52,6 +52,33 @@ class HistoryAppTest(unittest.TestCase):
         self.assertEqual(values[1], 0.10)
         self.assertEqual(values[23], 2.30)
         self.assertEqual(parse_number("36,41"), 36.41)
+
+    def test_history_validation_and_empty_metrics(self):
+        con = sqlite3.connect(":memory:")
+        con.row_factory = sqlite3.Row
+        con.execute("PRAGMA foreign_keys = ON")
+        init_db(con)
+
+        with self.assertRaisesRegex(ValueError, "24 values"):
+            save_actual(con, "2026-05-04", None, [1.0, 2.0])
+        with self.assertRaisesRegex(ValueError, "non-negative"):
+            save_actual(con, "2026-05-04", None, [-1.0] * 24)
+        with self.assertRaisesRegex(ValueError, "daily total"):
+            save_actual(con, "2026-05-04", None, [])
+        with self.assertRaises(ValueError):
+            parse_number("")
+        with self.assertRaises(ValueError):
+            parse_hourly_values("1 2 3")
+
+        self.assertEqual(hourly_error_metrics(con, 99, "2026-05-04")["hourly_points"], 0)
+        self.assertIsNone(forecast_detail(con, 99))
+
+    def test_history_url_uses_shared_model_settings(self):
+        url = build_forecast_url({"tilt": 42}, forecast_days=2)
+
+        self.assertIn("forecast_days=2", url)
+        self.assertIn("tilt=42", url)
+        self.assertIn("global_tilted_irradiance", url)
 
 
 def sample_forecast(*dates):

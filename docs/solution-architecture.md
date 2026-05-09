@@ -49,15 +49,20 @@ This is the canonical PV model for both the browser forecast and local history c
 
 Command-line bridge used by the Python history app. It converts day-ahead Open-Meteo payloads into the same forecast snapshot shape the SQLite database stores, while reusing `src/model.js`.
 
+`src/chartCore.js`
+
+Shared canvas primitives for the forecast app and the local history app: high-DPI canvas setup, grid/axis drawing, legends, line/bar drawing, hit testing, and tooltips. This module has no SolarGen business rules and is unit-tested directly.
+
 `src/charts.js`
 
-Canvas rendering for daily and hourly charts. It receives already-computed day models and does not own business logic.
+Forecast-specific canvas rendering for daily and hourly charts. It receives already-computed day models, delegates generic drawing to `src/chartCore.js`, and does not own business logic.
 
 Rendered charts:
 
 - 14 day production/value bars
 - selected-day generation and weather curve
 - selected-day energy-flow chart for PV, load, and export
+- selected-day battery charge curve
 
 `src/main.js`
 

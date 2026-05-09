@@ -1,6 +1,8 @@
 import { CALIBRATION, CLOUD_RESPONSE, DEFAULTS, LOCATION, ROOFTOP_PROFILE } from "./config.js";
 import { clamp, dayOfYear, formatDay, toRad, valueAt } from "./utils.js";
 
+let calibrationScaleCache = null;
+
 /**
  * Convert a raw Open-Meteo forecast payload into SolarGen day models.
  *
@@ -164,6 +166,7 @@ export function householdLoad(hour, settings = DEFAULTS) {
  * This keeps the model anchored to the measured full-sun screenshot before weather corrections.
  */
 export function calculateCalibrationScale() {
+  if (calibrationScaleCache !== null) return calibrationScaleCache;
   const baseHourly = Array.from({ length: 24 }, (_, hour) => {
     const irradiance = clearSkyPoa(CALIBRATION.date, hour, DEFAULTS.tilt);
     return (irradiance / 1000) * DEFAULTS.capacity * pvTemperatureFactor(irradiance, 18);
@@ -182,7 +185,8 @@ export function calculateCalibrationScale() {
       high = mid;
     }
   }
-  return (low + high) / 2;
+  calibrationScaleCache = (low + high) / 2;
+  return calibrationScaleCache;
 }
 
 /**
