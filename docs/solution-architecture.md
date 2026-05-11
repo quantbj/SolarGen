@@ -95,7 +95,7 @@ kWh = cloudAdjustedIrradiance W/m2 / 1000 * capacity kWp * calibrationScale * te
 
 The calibration scale is derived from the local clear-sky model so the default 10 kWp system aligns with the measured 50.23 kWh full-sun day.
 
-The model includes an empirical cloud response uplift fitted from the first stored actual-vs-forecast comparisons. It is capped at `2.0x` for high-cloud, low-irradiance hours and is zero for clear hours, so the full-sun calibration remains anchored while overcast days are no longer systematically under-forecast.
+The model includes an empirical cloud response uplift fitted from the first stored actual-vs-forecast comparisons. It is capped at `2.0x` for very dark high-cloud hours and is progressively reduced as forecast irradiance rises, so the full-sun calibration remains anchored while overcast days are no longer systematically under-forecast.
 
 The model then applies a screenshot-calibrated rooftop profile. On clear hours this profile reflects the observed behavior from May 1, 2026:
 

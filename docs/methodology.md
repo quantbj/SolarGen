@@ -39,18 +39,19 @@ The model treats hourly average kW as kWh for that hour. For example, a modeled 
 
 ## Cloud-Day Recalibration
 
-The first three day-ahead forecast comparisons showed a systematic under-forecast on high-cloud days:
+The first comparisons showed an under-forecast on very dark overcast days, while the next three actuals showed that the initial cloud uplift became too optimistic on brighter variable-cloud days:
 
-- `2026-05-04`: forecast `19.18 kWh`, actual `36.41 kWh`
-- `2026-05-05`: forecast `7.42 kWh`, actual `14.47 kWh`
-- `2026-05-08`: forecast `52.34 kWh`, actual `55.15 kWh`
+- `2026-05-04`: stored forecast `19.18 kWh`, actual `36.41 kWh`; the current shared model now estimates about `31 kWh`
+- `2026-05-05`: stored forecast `7.42 kWh`, actual `14.47 kWh`; the current shared model now estimates about `12.5 kWh`
+- `2026-05-08`: current shared model remains close to the actual `55.15 kWh`
+- `2026-05-09` to `2026-05-11`: the current shared model is weighted toward reducing the recent optimistic bias
 
-The sunny/mostly clear day was close, while the overcast days were roughly half the actual generation. SolarGen therefore applies an empirical cloud response multiplier before temperature derating:
+SolarGen therefore applies an empirical cloud response multiplier before temperature derating:
 
 ```text
 cloud_fraction = cloud_cover_pct / 100
-low_irradiance_weight = sqrt(1 - irradiance_Wm2 / 1400)
-cloud_response_multiplier = min(2.0, 1 + 1.3 * cloud_fraction * low_irradiance_weight)
+low_irradiance_weight = 1 - irradiance_Wm2 / 1400
+cloud_response_multiplier = min(2.0, 1 + 1.2 * cloud_fraction * low_irradiance_weight)
 ```
 
 The low-irradiance weight is clamped between `0` and `1`. Clear hours keep multiplier `1.0`; high-cloud, low-irradiance hours can be lifted up to `2.0`; bright high-irradiance hours are changed much less.
@@ -124,12 +125,12 @@ The cloudy/diffuse profile is a smooth daylight window:
 
 ```text
 diffuse_profile = theoretical_pv
-                * smoothstep(07:00, 12:00, hour_center)
+                * smoothstep(07:00, 08:30, hour_center)
                 * (1 - smoothstep(16:00, 20:00, hour_center))
-                * 0.85
+                * 0.70
 ```
 
-This keeps the clear-day step behavior, but on high-cloud days generation ramps gradually through the morning and decays gradually in the evening.
+This keeps the clear-day step behavior, but on high-cloud days generation ramps much earlier through the morning and decays gradually in the evening.
 
 Assumptions:
 
