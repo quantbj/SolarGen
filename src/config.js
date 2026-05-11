@@ -19,17 +19,17 @@ export const ROOFTOP_PROFILE = {
   diffuseCloudStartPct: 50,
   diffuseCloudFullPct: 95,
   diffuseMorningRampStartHour: 7,
-  diffuseMorningFullHour: 12,
+  diffuseMorningFullHour: 8.5,
   diffuseEveningRampStartHour: 16,
   diffuseEveningEndHour: 20,
-  diffuseOutputFactor: 0.85
+  diffuseOutputFactor: 0.7
 };
 
 export const CLOUD_RESPONSE = {
   maxMultiplier: 2,
-  cloudGain: 1.3,
+  cloudGain: 1.2,
   irradianceReferenceWm2: 1400,
-  irradianceExponent: 0.5
+  irradianceExponent: 1
 };
 
 export const DEFAULTS = {

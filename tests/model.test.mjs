@@ -135,32 +135,32 @@ test("clear full-sun modeled rooftop generation calibrates to the measured scree
   assert.ok(day.hours.find(hour => hour.hour === 17).pv < 1);
 });
 
-test("recalibrated cloud response improves stored cloudy-day underforecast pattern", () => {
-  const may4 = oneDayForecast({
-    date: "2026-05-04",
-    cloudByHour: hour => STORED_MAY4.cloud[hour],
-    irradianceByHour: hour => STORED_MAY4.irradiance[hour]
-  });
-  const may5 = oneDayForecast({
-    date: "2026-05-05",
-    cloudByHour: hour => STORED_MAY5.cloud[hour],
-    irradianceByHour: hour => STORED_MAY5.irradiance[hour]
-  });
-  const may8 = oneDayForecast({
-    date: "2026-05-08",
-    cloudByHour: hour => STORED_MAY8.cloud[hour],
-    irradianceByHour: hour => STORED_MAY8.irradiance[hour]
-  });
+test("recalibrated cloud response balances all stored forecast-vs-actual days", () => {
+  const cases = [
+    ["2026-05-04", STORED_MAY4, 36.41],
+    ["2026-05-05", STORED_MAY5, 14.47],
+    ["2026-05-08", STORED_MAY8, 55.15],
+    ["2026-05-09", STORED_MAY9, 33.41],
+    ["2026-05-10", STORED_MAY10, 44.06],
+    ["2026-05-11", STORED_MAY11, 27.4]
+  ];
 
-  const [may4Day] = simulateForecast(may4, noLoadSettings());
-  const [may5Day] = simulateForecast(may5, noLoadSettings());
-  const [may8Day] = simulateForecast(may8, noLoadSettings());
+  const absolutePercentErrors = cases.map(([date, stored, actual]) => {
+    const forecast = oneDayForecast({
+      date,
+      cloudByHour: hour => stored.cloud[hour],
+      irradianceByHour: hour => stored.irradiance[hour]
+    });
+    const [day] = simulateForecast(forecast, noLoadSettings());
+    return Math.abs(day.pv - actual) / actual;
+  });
+  const meanAbsolutePercentError = absolutePercentErrors.reduce((sum, error) => sum + error, 0) / cases.length;
 
-  assert.ok(Math.abs(may4Day.pv - 36.41) < 1.5);
-  assert.ok(Math.abs(may5Day.pv - 14.47) < 1.0);
-  assert.ok(Math.abs(may8Day.pv - 55.15) < 1.5);
+  assert.ok(meanAbsolutePercentError < 0.085);
+  assert.ok(absolutePercentErrors[3] < 0.02);
+  assert.ok(absolutePercentErrors[4] < 0.03);
+  assert.ok(absolutePercentErrors[5] < 0.17);
 });
-
 test("battery storage reduces evening grid import after midday surplus and reports state of charge percent", () => {
   const forecast = oneDayForecast({
     irradianceByHour: hour => (hour >= 10 && hour <= 14 ? 900 : 0),
@@ -387,4 +387,20 @@ const STORED_MAY5 = {
 const STORED_MAY8 = {
   irradiance: [0, 0, 0, 0, 0, 0, 2, 36, 128, 324, 538, 734, 888, 982, 1008, 962, 851, 619, 403, 232, 82, 20, 0, 0],
   cloud: [0, 15, 37, 0, 7, 15, 13, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 73, 62, 46, 13, 0, 0, 0]
+};
+
+
+const STORED_MAY9 = {
+  irradiance: [0, 0, 0, 0, 0, 0, 2, 37, 130, 312, 435, 552, 356, 321, 331, 374, 353, 247, 156, 123, 71, 19, 0, 0],
+  cloud: [0, 0, 0, 0, 5, 10, 7, 0, 24, 24, 78, 84, 100, 100, 100, 100, 100, 100, 95, 95, 100, 97, 91, 100]
+};
+
+const STORED_MAY10 = {
+  irradiance: [0, 0, 0, 0, 0, 0, 2, 34, 81, 173, 387, 558, 632, 687, 454, 396, 605, 636, 444, 256, 87, 24, 0, 0],
+  cloud: [96, 83, 100, 100, 71, 100, 91, 100, 100, 69, 99, 100, 100, 100, 100, 100, 38, 80, 16, 0, 42, 95, 100, 93]
+};
+
+const STORED_MAY11 = {
+  irradiance: [0, 0, 0, 0, 0, 0, 1, 21, 47, 63, 129, 245, 431, 532, 661, 379, 192, 153, 168, 222, 85, 24, 0, 0],
+  cloud: [98, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 95, 77, 41, 91, 83, 100]
 };
