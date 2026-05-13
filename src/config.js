@@ -11,25 +11,38 @@ export const CALIBRATION = {
 };
 
 export const ROOFTOP_PROFILE = {
-  morningLowUntilHour: 10,
-  eveningDropHour: 17,
-  lowOutputCapKw: 0.95,
-  lowOutputFactor: 0.14,
-  eveningTransitionHours: 0.5,
-  diffuseCloudStartPct: 50,
-  diffuseCloudFullPct: 95,
-  diffuseMorningRampStartHour: 7,
-  diffuseMorningFullHour: 8.5,
-  diffuseEveningRampStartHour: 16,
-  diffuseEveningEndHour: 20,
-  diffuseOutputFactor: 0.7
+  morningLowUntilHour: 10.67,
+  eveningDropHour: 17.61,
+  lowOutputCapKw: 1.44,
+  lowOutputFactor: 0.286,
+  eveningTransitionHours: 0.89,
+  diffuseCloudStartPct: 57.94,
+  diffuseCloudFullPct: 93.47,
+  diffuseMorningRampStartHour: 4.5,
+  diffuseMorningFullHour: 7.9,
+  diffuseEveningRampStartHour: 13.18,
+  diffuseEveningEndHour: 19.9,
+  diffuseOutputFactor: 1.2
 };
 
 export const CLOUD_RESPONSE = {
-  maxMultiplier: 2,
-  cloudGain: 1.2,
-  irradianceReferenceWm2: 1400,
-  irradianceExponent: 1
+  maxMultiplier: 1.748,
+  cloudGain: 2.2,
+  irradianceReferenceWm2: 577,
+  irradianceExponent: 1.855,
+  brightDampingStartWm2: 265,
+  brightDampingFullWm2: 818,
+  brightDampingStrength: 0.763,
+  dailyRainDampingWeight: 0.195,
+  dailyRainDampingFullMm: 3.116,
+  lowSunDampingWeight: 0.747,
+  lowSunFullHours: 3.755,
+  lowSunNoneHours: 10.267,
+  dailyCloudDampingWeight: 0.458,
+  dailyCloudDampingStartPct: 61.016,
+  dailyCloudDampingFullPct: 93.522,
+  hourlyRainLoss: 0.955,
+  dawnDiffuseFloorKwh: 0.2
 };
 
 export const DEFAULTS = {

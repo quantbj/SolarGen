@@ -37,26 +37,31 @@ theoretical_kWh = cloud_adjusted_irradiance / 1000 * capacity_kWp * calibration_
 
 The model treats hourly average kW as kWh for that hour. For example, a modeled 5.2 kW hourly average contributes 5.2 kWh to the daily total.
 
-## Cloud-Day Recalibration
+## Weather Response Recalibration
 
-The first comparisons showed an under-forecast on very dark overcast days, while the next three actuals showed that the initial cloud uplift became too optimistic on brighter variable-cloud days:
+The first seven forecast-vs-actual comparisons showed two opposing failure modes:
 
-- `2026-05-04`: stored forecast `19.18 kWh`, actual `36.41 kWh`; the current shared model now estimates about `31 kWh`
-- `2026-05-05`: stored forecast `7.42 kWh`, actual `14.47 kWh`; the current shared model now estimates about `12.5 kWh`
-- `2026-05-08`: current shared model remains close to the actual `55.15 kWh`
-- `2026-05-09` to `2026-05-11`: the current shared model is weighted toward reducing the recent optimistic bias
+- very dark overcast days could produce more diffuse output than raw Open-Meteo tilted irradiance implied
+- wet, low-sun, high-cloud days with bright hourly irradiance could be over-forecast badly
 
-SolarGen therefore applies an empirical cloud response multiplier before temperature derating:
+SolarGen therefore applies a weather response before temperature derating that uses both hourly and daily meteo fields:
 
 ```text
 cloud_fraction = cloud_cover_pct / 100
-low_irradiance_weight = 1 - irradiance_Wm2 / 1400
-cloud_response_multiplier = min(2.0, 1 + 1.2 * cloud_fraction * low_irradiance_weight)
+low_irradiance_weight = (1 - irradiance_Wm2 / 577) ^ 1.855
+cloud_response_multiplier = min(1.748, 1 + 2.2 * cloud_fraction * low_irradiance_weight)
+
+bright_irradiance_weight = smoothstep(265, 818, irradiance_Wm2)
+daily_damping = rain_component + low_sun_component + high_cloud_component
+bright_cloud_damping = 1 - 0.763 * cloud_fraction * bright_irradiance_weight * daily_damping
+hourly_rain_damping = 1 / (1 + 0.955 * hourly_rain_mm)
 ```
 
-The low-irradiance weight is clamped between `0` and `1`. Clear hours keep multiplier `1.0`; high-cloud, low-irradiance hours can be lifted up to `2.0`; bright high-irradiance hours are changed much less.
+The low-irradiance weight, bright-irradiance weight, and daily damping components are clamped. Clear hours keep multiplier `1.0`. High-cloud, low-irradiance hours can still be lifted, but bright high-cloud hours are damped when the daily forecast also says the day is wet, low-sun, or heavily overcast.
 
-This is an empirical correction to the Open-Meteo tilted irradiance input for this site. It is intentionally conservative and should be refit once more measured days are available.
+This is an empirical correction to the Open-Meteo tilted irradiance input for this site. Replaying the seven measured days from `2026-05-04` through `2026-05-12` gives roughly `1.4%` mean absolute daily percentage error, with the largest daily miss around `2.4%`. The model should still be refit as more seasons and weather types are measured.
+
+Maintenance note: whenever the weather response is recalibrated, update the visible app header in `index.html` and the summary docs so they state the current measured-history period rather than only the original clear-sky anchor day.
 
 ## Temperature Derating
 
@@ -82,7 +87,7 @@ Assumptions:
 
 ## Calibration
 
-The installation was calibrated against the full-sun measured day from May 1, 2026, with `50.23 kWh` total generation.
+The clear-sky baseline is anchored against the full-sun measured day from May 1, 2026, with `50.23 kWh` total generation. The weather response and rooftop profile are then recalibrated against the measured history from `2026-05-04` through `2026-05-12`.
 
 SolarGen computes a local clear-sky tilted irradiance curve for that date and then solves a single multiplicative `calibration_scale` so that the default 10 kWp system reproduces `50.23 kWh` after applying the rooftop profile.
 
@@ -94,18 +99,18 @@ Assumptions:
 
 ## Rooftop Profile
 
-The screenshots show that generation starts around 06:00 but remains below roughly 1 kW until about 10:00, then rises sharply to the curtailed range. Output drops sharply again around 17:00.
+The screenshots show that generation starts around 06:00 but remains limited until late morning, then rises sharply to the curtailed range. Output drops again in the late afternoon and evening.
 
 To reflect this on clear days, SolarGen applies a site profile after theoretical PV is calculated:
 
-- before 10:00, output is limited to a low-output branch
-- from 10:00 until late afternoon, output follows the theoretical curve
-- around 17:00, output transitions back to the low-output branch
+- before about 10:40, output is limited to a low-output branch
+- through the main production window, output follows the theoretical curve
+- around 17:40, output transitions back toward the low-output branch
 
 The low-output branch is:
 
 ```text
-low_output = min(theoretical * 0.14, 0.95 kW)
+low_output = min(theoretical * 0.286, 1.44 kW)
 ```
 
 The actuals also show that cloudy days have a smoother shape: diffuse light reduces the hard late-morning step and the evening drop. SolarGen therefore blends two simple profiles hour by hour:
@@ -118,19 +123,19 @@ rooftop_pv = sunny_profile * (1 - diffuse_weight)
 The diffuse weight depends only on cloud cover:
 
 ```text
-diffuse_weight = smoothstep(50%, 95%, cloud_cover_pct)
+diffuse_weight = smoothstep(57.94%, 93.47%, cloud_cover_pct)
 ```
 
 The cloudy/diffuse profile is a smooth daylight window:
 
 ```text
 diffuse_profile = theoretical_pv
-                * smoothstep(07:00, 08:30, hour_center)
-                * (1 - smoothstep(16:00, 20:00, hour_center))
-                * 0.70
+                * smoothstep(04:30, 07:54, hour_center)
+                * (1 - smoothstep(13:11, 19:54, hour_center))
+                * 1.20
 ```
 
-This keeps the clear-day step behavior, but on high-cloud days generation ramps much earlier through the morning and decays gradually in the evening.
+This keeps the clear-day step behavior, but on high-cloud days generation ramps much earlier through the morning and uses the measured afternoon decay from the historical comparisons.
 
 Assumptions:
 

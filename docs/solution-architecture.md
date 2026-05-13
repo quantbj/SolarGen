@@ -39,7 +39,8 @@ Responsibilities:
 
 - group hourly forecast records by date
 - estimate PV output from tilted irradiance and temperature
-- calibrate output against the measured full-sun day of 50.23 kWh on May 1, 2026
+- anchor clear-sky output against the measured full-sun day of 50.23 kWh on May 1, 2026
+- recalibrate weather response against measured forecast history from May 4-12, 2026
 - model direct self-consumption, battery charge/discharge, grid import, grid export, and curtailment
 - compute savings, feed-in earnings, and total value
 
@@ -93,18 +94,18 @@ Hourly PV output is estimated as:
 kWh = cloudAdjustedIrradiance W/m2 / 1000 * capacity kWp * calibrationScale * temperatureFactor
 ```
 
-The calibration scale is derived from the local clear-sky model so the default 10 kWp system aligns with the measured 50.23 kWh full-sun day.
+The calibration scale is derived from the local clear-sky model so the default 10 kWp system aligns with the measured 50.23 kWh full-sun day on May 1, 2026. The weather response is separately recalibrated against measured forecast history from May 4-12, 2026.
 
-The model includes an empirical cloud response uplift fitted from the first stored actual-vs-forecast comparisons. It is capped at `2.0x` for very dark high-cloud hours and is progressively reduced as forecast irradiance rises, so the full-sun calibration remains anchored while overcast days are no longer systematically under-forecast.
+The model includes an empirical weather response fitted from the stored actual-vs-forecast comparisons. It uses hourly tilted irradiance, cloud cover, precipitation, and temperature plus daily rain, mean cloud cover, and sunshine duration. Low-irradiance overcast hours can be lifted, while bright high-cloud hours are damped on wet, low-sun, high-cloud days where raw tilted irradiance has historically over-forecast.
 
 The model then applies a screenshot-calibrated rooftop profile. On clear hours this profile reflects the observed behavior from May 1, 2026:
 
 - generation starts around 06:00
-- output stays below roughly 1 kW before 10:00
-- the main production window opens from 10:00 through late afternoon
-- output drops sharply around 17:00
+- output remains limited before late morning
+- the main production window opens from late morning through late afternoon
+- output drops through the late afternoon and evening
 
-For cloudy hours, the model blends toward a smoother diffuse-light profile. This uses cloud cover as the blend weight, preserving the clear-day step while avoiding an unrealistic step change on overcast days.
+For cloudy hours, the model blends toward a smoother diffuse-light profile. This uses cloud cover as the blend weight and daily weather damping to avoid the latest observed failure mode: bright hourly irradiance on a wet, low-sun overcast day.
 
 This keeps the forecast tied to the actual installation behavior instead of assuming one unobstructed smooth bell curve or one fixed step profile for every weather condition.
 

@@ -123,8 +123,9 @@ npm start
 - Roof tilt: `35 deg`
 - Battery: `10 kWh`
 - Feed-in cap: `6 kW`
-- Measured calibration day: `50.23 kWh` on `2026-05-01`, treated as a full-sun day
-- Rooftop profile: screenshot-calibrated low output before `10:00` and after about `17:00`
+- Clear-sky anchor day: `50.23 kWh` on `2026-05-01`, treated as a full-sun day
+- Weather response calibration period: measured history from `2026-05-04` through `2026-05-12`
+- Rooftop profile: screenshot-calibrated limited output before the late-morning production window and through the late afternoon
 - Daily household consumption: about `10 kWh/day` by default
 - Avoided import price: `0.30 EUR/kWh`
 - Feed-in tariff: `0.0778 EUR/kWh`

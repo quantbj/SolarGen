@@ -87,7 +87,7 @@ The forecast depends on Open-Meteo weather data. If the network request fails, t
 
 ## Rooftop Profile Calibration
 
-The default generation curve uses the screenshots from May 1, 2026 as a site profile. Clear days keep forecast output below about 1 kW before 10:00, open the main production window after 10:00, and drop output sharply around 17:00. Cloudy days blend toward a smoother diffuse-light profile. Battery charge level is shown separately below the hourly flow chart.
+The default generation curve uses the May 1, 2026 full-sun screenshot as the clear-sky anchor and measured history from May 4-12, 2026 for the weather response. Clear days keep limited output before the late-morning production window and drop again through the late afternoon. Cloudy days blend toward a calibrated diffuse-light profile. Battery charge level is shown separately below the hourly flow chart.
 
 ## Accessibility
 

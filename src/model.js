@@ -22,19 +22,32 @@ export function simulateForecast(forecast, settings = DEFAULTS) {
   let batterySoc = settings.battery * (settings.batteryStart / 100);
 
   return daily.time.map((date, dayIndex) => {
+    const dailyWeather = {
+      cloudCoverMean: valueAt(daily.cloud_cover_mean, dayIndex, 0),
+      precipitationSum: valueAt(daily.precipitation_sum, dayIndex, 0),
+      sunshineHours: valueAt(daily.sunshine_duration, dayIndex, 0) / 3600
+    };
     const hours = (grouped.get(date) || []).map(hour => {
       const irradiance = hour.irradiance ?? fallbackIrradiance(date, hour.hour, settings.tilt, hour.cloudCover);
 
-      // Open-Meteo's tilted irradiance was too pessimistic on the first high-cloud actuals.
-      // The correction is deliberately hour-local and conservative: it lifts diffuse/cloudy
-      // low-irradiance hours while leaving clear hours unchanged.
-      const correctedIrradiance = cloudAdjustedIrradiance(irradiance, hour.cloudCover);
+      // The weather response uses both hourly and daily Open-Meteo fields. Low-irradiance
+      // overcast hours are lifted, while bright high-cloud hours are damped on wet,
+      // low-sun, high-cloud days where the raw tilted irradiance has over-forecast.
+      const correctedIrradiance = cloudAdjustedIrradiance(
+        irradiance,
+        hour.cloudCover,
+        hour.precipitation,
+        dailyWeather
+      );
       const tempFactor = pvTemperatureFactor(correctedIrradiance, hour.temperature);
       const theoreticalPv = Math.max(0, (correctedIrradiance / 1000) * settings.capacity * calibrationScale * tempFactor);
 
       // Rooftop behavior is weather-dependent: clear days keep the observed step profile,
       // cloudy days blend toward a smoother diffuse-light profile.
-      const pv = applyRooftopProfile(theoreticalPv, hour.hour, settings, hour.cloudCover);
+      const pv = Math.max(
+        applyRooftopProfile(theoreticalPv, hour.hour, settings, hour.cloudCover),
+        diffuseDawnFloor(hour.hour, hour.cloudCover, settings)
+      );
       const curtailed = Math.max(0, pv - settings.feedCap);
       const deliveredPv = pv - curtailed;
       const load = householdLoad(hour.hour, settings);
@@ -79,8 +92,8 @@ export function simulateForecast(forecast, settings = DEFAULTS) {
       tempMax: valueAt(daily.temperature_2m_max, dayIndex, null),
       tempMin: valueAt(daily.temperature_2m_min, dayIndex, null),
       rain: valueAt(daily.precipitation_sum, dayIndex, 0),
-      cloud: valueAt(daily.cloud_cover_mean, dayIndex, 0),
-      sunshineHours: valueAt(daily.sunshine_duration, dayIndex, 0) / 3600,
+      cloud: dailyWeather.cloudCoverMean,
+      sunshineHours: dailyWeather.sunshineHours,
       hours,
       ...totals,
       savings: totals.selfConsumed * settings.price,
@@ -277,7 +290,7 @@ export function pvTemperatureFactor(irradiance, ambientTemperature) {
  * Empirical correction for high-cloud hours where Open-Meteo tilted irradiance under-forecast
  * the actual generation. Clear hours return the original irradiance unchanged.
  */
-export function cloudAdjustedIrradiance(irradiance, cloudCover) {
+export function cloudAdjustedIrradiance(irradiance, cloudCover, precipitation = 0, dailyWeather = {}) {
   if (irradiance <= 0) return 0;
   const cloud = clamp((cloudCover || 0) / 100, 0, 1);
   const lowIrradianceWeight = Math.pow(
@@ -288,7 +301,43 @@ export function cloudAdjustedIrradiance(irradiance, cloudCover) {
     CLOUD_RESPONSE.maxMultiplier,
     1 + CLOUD_RESPONSE.cloudGain * cloud * lowIrradianceWeight
   );
-  return irradiance * multiplier;
+  const brightIrradianceWeight = smoothstep(
+    CLOUD_RESPONSE.brightDampingStartWm2,
+    CLOUD_RESPONSE.brightDampingFullWm2,
+    irradiance
+  );
+  const dailyDamping = weatherDampingWeight(dailyWeather);
+  const brightDamping = 1 - CLOUD_RESPONSE.brightDampingStrength * cloud * brightIrradianceWeight * dailyDamping;
+  const rainDamping = 1 / (1 + CLOUD_RESPONSE.hourlyRainLoss * Math.max(0, precipitation || 0));
+
+  return irradiance * multiplier * clamp(brightDamping, 0.25, 1.1) * rainDamping;
+}
+
+function weatherDampingWeight(dailyWeather = {}) {
+  const dailyRain = Number.isFinite(dailyWeather.precipitationSum) ? Math.max(0, dailyWeather.precipitationSum) : null;
+  const sunshineHours = Number.isFinite(dailyWeather.sunshineHours) ? Math.max(0, dailyWeather.sunshineHours) : null;
+  const cloudCoverMean = Number.isFinite(dailyWeather.cloudCoverMean) ? Math.max(0, dailyWeather.cloudCoverMean) : null;
+  return clamp(
+    (dailyRain === null ? 0 : CLOUD_RESPONSE.dailyRainDampingWeight * smoothstep(0, CLOUD_RESPONSE.dailyRainDampingFullMm, dailyRain)) +
+    (sunshineHours === null ? 0 : CLOUD_RESPONSE.lowSunDampingWeight * smoothstep(
+      CLOUD_RESPONSE.lowSunNoneHours,
+      CLOUD_RESPONSE.lowSunFullHours,
+      sunshineHours
+    )) +
+    (cloudCoverMean === null ? 0 : CLOUD_RESPONSE.dailyCloudDampingWeight * smoothstep(
+      CLOUD_RESPONSE.dailyCloudDampingStartPct,
+      CLOUD_RESPONSE.dailyCloudDampingFullPct,
+      cloudCoverMean
+    )),
+    0,
+    1.2
+  );
+}
+
+function diffuseDawnFloor(hour, cloudCover, settings = DEFAULTS) {
+  if (hour < 5 || hour > 6) return 0;
+  const cloud = clamp((cloudCover || 0) / 100, 0, 1);
+  return CLOUD_RESPONSE.dawnDiffuseFloorKwh * cloud * (settings.capacity / DEFAULTS.capacity);
 }
 
 /**
