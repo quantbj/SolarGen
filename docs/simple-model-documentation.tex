@@ -1,0 +1,217 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=2.3cm]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{xcolor}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  urlcolor=blue
+}
+
+\title{SolarGen Simple Forecast Model}
+\author{SolarGen}
+\date{Model version: fitted on measured day-ahead history through 2026-05-13}
+
+\begin{document}
+\maketitle
+
+\section{Purpose}
+
+This document describes the simple SolarGen forecast model added as a candidate model beside the current production forecast. The model is intentionally low-dimensional. It predicts only the daily photovoltaic generation total and does not replace the existing hourly production model.
+
+The goal is to separate two questions:
+
+\begin{enumerate}
+  \item how much energy should the roof produce over the full day;
+  \item how should that daily total be distributed across hours for charts and battery simulation.
+\end{enumerate}
+
+The simple model answers only the first question.
+
+\section{Inputs}
+
+For each target day \(d\), the model uses two Open-Meteo forecast features:
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+Symbol & Meaning \\
+\midrule
+\(H_d\) & forecast sunshine duration in hours \\
+\(R_d\) & precipitation in mm during hours with positive tilted irradiance \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The daylight-rain feature is computed from hourly forecast data:
+
+\[
+R_d =
+\sum_{h=0}^{23}
+\mathbf{1}\{I_{d,h} > 0\} P_{d,h},
+\]
+
+where \(I_{d,h}\) is global tilted irradiance in \(\mathrm{W/m^2}\) and \(P_{d,h}\) is precipitation in mm for hour \(h\).
+
+\section{Model Equation}
+
+The daily generation forecast is:
+
+\[
+\widehat{G}_d =
+\max\left(0,\ \beta_0 + \beta_H H_d + \beta_R R_d\right).
+\]
+
+The fitted coefficients are:
+
+\[
+\beta_0 = 18.3545,
+\qquad
+\beta_H = 2.3510,
+\qquad
+\beta_R = -1.9219.
+\]
+
+Therefore:
+
+\[
+\boxed{
+\widehat{G}_d =
+\max\left(0,\ 18.3545 + 2.3510 H_d - 1.9219 R_d\right)
+}
+\]
+
+The output unit is kWh/day.
+
+\section{Interpretation}
+
+The intercept represents baseline production under low-sun but nonzero forecast conditions observed in the calibration period. The sunshine coefficient adds roughly \(2.35\ \mathrm{kWh}\) per forecast sunshine hour. The daylight-rain coefficient subtracts roughly \(1.92\ \mathrm{kWh}\) per mm of precipitation falling during irradiance-positive hours.
+
+The model should not be interpreted as a physical PV model. It is a compact empirical correction derived from the local forecast history. Its main advantage is that it has very few degrees of freedom and therefore less opportunity to overfit than the current nonlinear production model.
+
+\section{Hourly Allocation}
+
+The simple model does not predict an independent hourly curve. For visualization, the history app derives a simple hourly line by scaling the current model hourly shape:
+
+\[
+\widehat{G}^{\mathrm{simple}}_{d,h}
+=
+\widehat{G}^{\mathrm{current}}_{d,h}
+\cdot
+\frac{\widehat{G}^{\mathrm{simple}}_d}
+{\sum_{j=0}^{23}\widehat{G}^{\mathrm{current}}_{d,j}}.
+\]
+
+This preserves the current model's intraday timing while replacing only the daily total. If the current model's daily hourly total is zero, the simple hourly curve is set to zero.
+
+\section{Calibration Data}
+
+The model was fitted on stored day-ahead forecast runs with matching actual production:
+
+\begin{center}
+\begin{tabular}{lrrrr}
+\toprule
+Date & Actual & Sunshine & Daylight rain & Simple fit \\
+ & kWh & h & mm & kWh \\
+\midrule
+2026-05-04 & 36.41 & 6.25 & 0.0 & 33.05 \\
+2026-05-05 & 14.47 & 0.00 & 2.4 & 13.74 \\
+2026-05-08 & 55.15 & 14.99 & 0.0 & 53.60 \\
+2026-05-09 & 33.41 & 7.95 & 0.0 & 37.04 \\
+2026-05-10 & 44.06 & 11.66 & 0.0 & 45.78 \\
+2026-05-11 & 27.40 & 4.56 & 0.2 & 28.70 \\
+2026-05-12 & 24.43 & 7.11 & 5.1 & 25.26 \\
+2026-05-13 & 38.31 & 8.93 & 1.5 & 36.47 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Out-of-Sample Validation}
+
+Two validation schemes were used:
+
+\begin{enumerate}
+  \item Leave-one-out cross-validation: fit on seven days and test on the held-out day.
+  \item Chronological walk-forward validation: train on the first four available days, test the next day, then expand the training window.
+\end{enumerate}
+
+\begin{center}
+\begin{tabular}{lrrrr}
+\toprule
+Model & MAE & RMSE & MAPE & Max error \\
+ & kWh & kWh & \% & kWh \\
+\midrule
+Current stored model, leave-one-out & 9.83 & 11.32 & 34.0 & 17.23 \\
+Simple model, leave-one-out & 3.18 & 3.47 & 10.3 & 5.66 \\
+Current stored model, walk-forward & 9.46 & 11.00 & 32.5 & 14.91 \\
+Simple model, walk-forward & 2.42 & 2.60 & 7.9 & 3.95 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+These results are based on a small sample. They should be treated as evidence for a candidate model, not as final proof of superiority.
+
+\section{Same-Day Forecast Example}
+
+For 2026-05-14, the day-ahead weather forecast substantially overestimated daylight rain. The simple model therefore predicted only \(6.32\ \mathrm{kWh}\) from the day-ahead weather snapshot.
+
+Using the same-day Open-Meteo forecast, the inputs changed to approximately:
+
+\[
+H_d = 4.56,
+\qquad
+R_d = 5.4.
+\]
+
+The simple model then predicted:
+
+\[
+\widehat{G}_d =
+18.3545 + 2.3510 \cdot 4.56 - 1.9219 \cdot 5.4
+\approx 18.7\ \mathrm{kWh}.
+\]
+
+This was close to the observed generation estimate of roughly \(18\ \mathrm{kWh}\). The case illustrates that some forecast error comes from weather input error rather than model-form error.
+
+\section{Known Limitations}
+
+\begin{itemize}
+  \item The model was fitted on only eight measured day-ahead examples.
+  \item The rain penalty is linear and can over-penalize outside the observed training range.
+  \item The model does not use hourly cloud timing except through daylight rain and sunshine duration.
+  \item The hourly simple curve is a scaled version of the current model's hourly shape, not an independently fitted profile.
+  \item The coefficients should not be refit frequently until more measured history exists.
+\end{itemize}
+
+\section{Operational Use}
+
+The history app stores both forecast candidates for each run:
+
+\begin{itemize}
+  \item \texttt{forecast\_total\_kwh}: current production model daily total;
+  \item \texttt{simple\_forecast\_total\_kwh}: simple two-variable candidate daily total.
+\end{itemize}
+
+Forecasts are also separated by source, for example:
+
+\begin{itemize}
+  \item \texttt{Open-Meteo day-ahead};
+  \item \texttt{Open-Meteo same-day}.
+\end{itemize}
+
+This makes it possible to separate model error from weather forecast vintage error.
+
+\section{Implementation References}
+
+\begin{itemize}
+  \item \texttt{src/historyForecast.js}: simple daily model and forecast snapshot serialization.
+  \item \texttt{history\_app/database.py}: SQLite storage, migration, and comparison fields.
+  \item \texttt{history\_app/static/history.js}: side-by-side current and simple model display.
+  \item \texttt{docs/forecast-generalization-report.md}: validation report and model selection rationale.
+\end{itemize}
+
+\end{document}

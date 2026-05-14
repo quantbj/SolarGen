@@ -11,7 +11,7 @@ import {
   simulateForecast
 } from "../src/model.js";
 import { buildFallbackForecast, buildForecastUrl, fetchOpenMeteoForecast } from "../src/weather.js";
-import { buildHistoryForecastUrl, captureDayAheadForecast } from "../src/historyForecast.js";
+import { buildHistoryForecastUrl, captureDayAheadForecast, captureForecastSnapshot, simpleDailyForecastTotal } from "../src/historyForecast.js";
 import { debounce, formatDay, formatMoney, formatNumber, valueAt } from "../src/utils.js";
 
 test("clear-sky model produces no irradiance at night and meaningful midday irradiance", () => {
@@ -294,9 +294,66 @@ test("history capture selects the day-ahead forecast and serializes hourly value
 
   assert.equal(snapshot.issued_date, "2026-05-09");
   assert.equal(snapshot.target_date, "2026-05-10");
+  assert.equal(snapshot.source, "Open-Meteo day-ahead");
   assert.equal(snapshot.hours.length, 24);
   assert.ok(snapshot.forecast_total_kwh > 0);
+  assert.equal(snapshot.simple_forecast_total_kwh, 36.64);
   assert.match(buildHistoryForecastUrl({ tilt: 40 }, 2), /forecast_days=2/);
+});
+
+test("history capture can store same-day forecasts as a separate source", () => {
+  const forecast = {
+    hourly: {
+      time: [],
+      temperature_2m: [],
+      cloud_cover: [],
+      precipitation: [],
+      global_tilted_irradiance: [],
+      is_day: [],
+      weather_code: []
+    },
+    daily: {
+      time: ["2026-05-09", "2026-05-10"],
+      weather_code: [2, 0],
+      temperature_2m_max: [18, 20],
+      temperature_2m_min: [8, 10],
+      precipitation_sum: [0.2, 0],
+      cloud_cover_mean: [60, 10],
+      sunshine_duration: [18000, 36000]
+    }
+  };
+  for (const date of forecast.daily.time) {
+    for (let hour = 0; hour < 24; hour += 1) {
+      forecast.hourly.time.push(`${date}T${String(hour).padStart(2, "0")}:00`);
+      forecast.hourly.temperature_2m.push(18);
+      forecast.hourly.cloud_cover.push(60);
+      forecast.hourly.precipitation.push(hour === 12 ? 0.2 : 0);
+      forecast.hourly.global_tilted_irradiance.push(hour >= 10 && hour <= 15 ? 400 : 0);
+      forecast.hourly.is_day.push(hour >= 6 && hour <= 20 ? 1 : 0);
+      forecast.hourly.weather_code.push(2);
+    }
+  }
+
+  const snapshot = captureForecastSnapshot({
+    forecast,
+    now: new Date("2026-05-09T15:00:00+02:00"),
+    targetOffsetDays: 0,
+    source: "Open-Meteo same-day"
+  });
+
+  assert.equal(snapshot.issued_date, "2026-05-09");
+  assert.equal(snapshot.target_date, "2026-05-09");
+  assert.equal(snapshot.source, "Open-Meteo same-day");
+});
+
+test("simple daily forecast candidate uses sunshine and daylight rain only", () => {
+  const hours = [
+    { irradiance_wm2: 0, rain_mm: 8 },
+    { irradiance_wm2: 120, rain_mm: 2 },
+    { irradiance_wm2: 300, rain_mm: 1 }
+  ];
+
+  assert.equal(simpleDailyForecastTotal(8, hours), 31.397);
 });
 
 

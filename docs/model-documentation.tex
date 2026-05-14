@@ -1,0 +1,372 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=2.3cm]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{xcolor}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  urlcolor=blue
+}
+
+\title{SolarGen Forecast Model}
+\author{SolarGen}
+\date{Model version: recalibrated with measured history from 2026-05-04 through 2026-05-12}
+
+\begin{document}
+\maketitle
+
+\section{Purpose and Scope}
+
+SolarGen estimates hourly rooftop photovoltaic generation for a 10 kWp south-facing rooftop array in OHZ / Osterholz-Scharmbeck. The model is used by both the browser forecast and the local forecast-history database.
+
+The model has two calibration layers:
+
+\begin{itemize}
+  \item a clear-sky anchor day: 50.23 kWh measured on 2026-05-01;
+  \item a weather-response recalibration period: measured forecast history from 2026-05-04 through 2026-05-12.
+\end{itemize}
+
+The hourly input data comes from Open-Meteo:
+
+\[
+I_h,\ C_h,\ R_h,\ T_h
+\]
+
+where \(I_h\) is global tilted irradiance in \(\mathrm{W/m^2}\), \(C_h\) is cloud cover in percent, \(R_h\) is precipitation in mm, and \(T_h\) is ambient temperature in \(^{\circ}\mathrm{C}\). Daily inputs are precipitation sum, mean cloud cover, and sunshine duration.
+
+\section{Notation}
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+Symbol & Meaning \\
+\midrule
+\(h\) & local hour, 0 through 23 \\
+\(P\) & configured PV capacity in kWp, default \(10\) \\
+\(F\) & feed-in cap in kW, default \(6\) \\
+\(I_h\) & Open-Meteo global tilted irradiance, \(\mathrm{W/m^2}\) \\
+\(C_h\) & hourly cloud cover fraction, \(C_h = \mathrm{cloud\_pct}_h / 100\) \\
+\(R_h\) & hourly precipitation, mm \\
+\(T_h\) & ambient air temperature, \(^{\circ}\mathrm{C}\) \\
+\(S\) & calibration scale solved from the clear-sky anchor day \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+All hourly kW averages are treated as kWh over that hour.
+
+\section{Weather-Adjusted Irradiance}
+
+\subsection{Low-Irradiance Cloud Uplift}
+
+Very dark overcast days produced more rooftop output than raw tilted irradiance implied. The model therefore boosts low-irradiance cloudy hours:
+
+\[
+L_h = \left[\operatorname{clamp}\left(1 - \frac{I_h}{577}, 0, 1\right)\right]^{1.855}
+\]
+
+\[
+M_h = \min\left(1.748,\ 1 + 2.2 C_h L_h\right)
+\]
+
+Clear hours keep \(M_h = 1\). The boost is strongest when cloud cover is high and irradiance is low.
+
+\subsection{Daily Weather Damping}
+
+The May 12 actual showed the opposite failure mode: bright hourly irradiance under wet, low-sun, high-cloud daily conditions can over-forecast. The model computes:
+
+\[
+D_{\mathrm{rain}} = 0.195 \cdot \operatorname{smoothstep}(0,\ 3.116,\ R_{\mathrm{day}})
+\]
+
+\[
+D_{\mathrm{sun}} = 0.747 \cdot \operatorname{smoothstep}(10.267,\ 3.755,\ H_{\mathrm{sun}})
+\]
+
+\[
+D_{\mathrm{cloud}} = 0.458 \cdot \operatorname{smoothstep}(61.016,\ 93.522,\ C_{\mathrm{day}})
+\]
+
+\[
+D_{\mathrm{day}} =
+\operatorname{clamp}\left(D_{\mathrm{rain}} + D_{\mathrm{sun}} + D_{\mathrm{cloud}}, 0, 1.2\right)
+\]
+
+where \(R_{\mathrm{day}}\) is daily precipitation in mm, \(H_{\mathrm{sun}}\) is sunshine duration in hours, and \(C_{\mathrm{day}}\) is mean daily cloud cover in percent.
+
+\subsection{Bright High-Cloud Damping}
+
+The bright-hour weight is:
+
+\[
+B_h = \operatorname{smoothstep}(265,\ 818,\ I_h)
+\]
+
+The bright-cloud damping factor is:
+
+\[
+Q_h =
+\operatorname{clamp}\left(1 - 0.763 C_h B_h D_{\mathrm{day}},\ 0.25,\ 1.1\right)
+\]
+
+\subsection{Hourly Rain Damping}
+
+\[
+U_h = \frac{1}{1 + 0.955 R_h}
+\]
+
+\subsection{Adjusted Irradiance}
+
+The weather-adjusted irradiance is:
+
+\[
+I'_h = I_h \cdot M_h \cdot Q_h \cdot U_h
+\]
+
+\section{Temperature Derating}
+
+Panel temperature is approximated from adjusted irradiance and ambient temperature:
+
+\[
+T_{\mathrm{panel},h} = T_h + \frac{I'_h}{800} \cdot 20
+\]
+
+The derating factor is:
+
+\[
+A_h =
+\operatorname{clamp}\left(1 - 0.0035(T_{\mathrm{panel},h} - 25),\ 0.82,\ 1.06\right)
+\]
+
+\section{Theoretical PV Output}
+
+Before applying the site-specific rooftop profile:
+
+\[
+G^{\mathrm{theory}}_h =
+\frac{I'_h}{1000} \cdot P \cdot S \cdot A_h
+\]
+
+The calibration scale \(S\) is solved numerically so that the clear-sky irradiance curve for 2026-05-01 produces exactly 50.23 kWh after the rooftop profile is applied.
+
+\section{Rooftop Profile}
+
+The rooftop profile maps theoretical generation to the observed installation behavior. It models morning limitation, the main production window, evening drop-off, and diffuse-light behavior under cloud.
+
+\subsection{Clear-Sky Branch}
+
+The low-output branch is:
+
+\[
+G^{\mathrm{low}}_h =
+\min\left(0.286 G^{\mathrm{theory}}_h,\ 1.44\right)
+\]
+
+The clear/direct branch is:
+
+\[
+G^{\mathrm{sun}}_h =
+\begin{cases}
+G^{\mathrm{low}}_h, & h < 10.67 \\
+G^{\mathrm{theory}}_h, & 10.67 \leq h < 16.72 \\
+(1 - p_h)G^{\mathrm{theory}}_h + p_h G^{\mathrm{low}}_h, & 16.72 \leq h < 17.61 \\
+G^{\mathrm{low}}_h, & h \geq 17.61
+\end{cases}
+\]
+
+where
+
+\[
+p_h = \frac{h - (17.61 - 0.89)}{0.89}
+\]
+
+\subsection{Cloud/Diffuse Branch}
+
+Clouds increase the diffuse-light share:
+
+\[
+W_h = \operatorname{smoothstep}(57.94,\ 93.47,\ 100 C_h)
+\]
+
+The diffuse branch uses the hour center \(x_h = h + 0.5\):
+
+\[
+G^{\mathrm{diff}}_h =
+G^{\mathrm{theory}}_h
+\cdot \operatorname{smoothstep}(4.5,\ 7.9,\ x_h)
+\cdot \left[1 - \operatorname{smoothstep}(13.18,\ 19.9,\ x_h)\right]
+\cdot 1.2
+\]
+
+\subsection{Rooftop Generation Before Curtailment}
+
+\[
+G_h =
+(1 - W_h)G^{\mathrm{sun}}_h + W_hG^{\mathrm{diff}}_h
+\]
+
+For hours 5 and 6 only, a small dawn diffuse floor is applied:
+
+\[
+G_h = \max(G_h,\ 0.2 C_h \cdot P / 10)
+\]
+
+\section{Curtailment and Delivered PV}
+
+The feed-in cap is applied to hourly rooftop generation:
+
+\[
+G^{\mathrm{curt}}_h = \max(0,\ G_h - F)
+\]
+
+\[
+G^{\mathrm{deliv}}_h = G_h - G^{\mathrm{curt}}_h
+\]
+
+Daily rooftop generation is:
+
+\[
+G_{\mathrm{day}} = \sum_{h=0}^{23} G_h
+\]
+
+\section{Household Load and Battery Accounting}
+
+The default household load is:
+
+\[
+L^{\mathrm{home}}_h =
+L_{\mathrm{base}}
++ \mathbf{1}_{8 \leq h < 18}L_{\mathrm{day}}
++ \mathbf{1}_{18 \leq h < 23}L_{\mathrm{eve}}
++ \mathbf{1}_{6 \leq h < 8}(0.45L_{\mathrm{day}})
+\]
+
+PV first covers same-hour load. Remaining load is covered from the battery if available. PV surplus charges the battery with 94 percent charge efficiency. Remaining surplus is exported.
+
+\section{Calibration Procedure}
+
+Calibration is split into a structural clear-sky fit and a weather-response fit. This keeps the model identifiable: the clear-sky day fixes the site scale and rooftop geometry, while the historical cloudy and rainy days tune how meteorology changes production.
+
+\subsection{Clear-Sky Scale}
+
+Let \(A\) be the anchor day, 2026-05-01, with measured production
+
+\[
+Y_A = 50.23\ \mathrm{kWh}.
+\]
+
+For any trial scale \(S\), the model produces an anchor-day total
+
+\[
+\widehat{Y}_A(S) = \sum_{h=0}^{23} G_h(S).
+\]
+
+The scale is solved numerically as the one-dimensional root
+
+\[
+S^{\star}
+= \arg\min_S \left(\widehat{Y}_A(S) - Y_A\right)^2,
+\qquad
+\widehat{Y}_A(S^{\star}) = Y_A.
+\]
+
+This step fixes the absolute output level for the 10 kWp array after temperature derating and the rooftop profile.
+
+\subsection{Weather-Response Fit}
+
+The weather-response parameters are fitted against measured daily totals from 2026-05-04 through 2026-05-12. For each measured day \(d\), let \(Y_d\) be actual generation and \(\widehat{Y}_d(\theta)\) be the modeled total under parameter vector \(\theta\):
+
+\[
+\theta =
+\left(
+\theta_{\mathrm{cloud}},
+\theta_{\mathrm{rain}},
+\theta_{\mathrm{sun}},
+\theta_{\mathrm{profile}}
+\right).
+\]
+
+The fitting objective minimizes daily error while keeping the anchor scale fixed:
+
+\[
+\theta^{\star}
+= \arg\min_{\theta}
+\sum_{d \in \mathcal{D}}
+w_d
+\left(\widehat{Y}_d(\theta) - Y_d\right)^2,
+\qquad
+\mathcal{D} = \{2026\text{-}05\text{-}04,\ldots,2026\text{-}05\text{-}12\}.
+\]
+
+Days with incomplete actuals are excluded from \(\mathcal{D}\). The calibrated parameters primarily control four effects:
+
+\begin{itemize}
+  \item low-irradiance cloud uplift, \(M_h\), which raises modeled output on dark diffuse days;
+  \item daily weather damping, \(D_{\mathrm{day}}\), which suppresses over-optimistic bright-hour forecasts on wet, low-sun, high-cloud days;
+  \item hourly rain damping, \(U_h\), which applies immediate precipitation loss;
+  \item rooftop timing parameters, which encode the observed morning limitation and evening drop-off.
+\end{itemize}
+
+\subsection{Model Selection Criterion}
+
+The selected parameter set is the simplest candidate that reproduces the historical totals without removing the physical structure of the model. The primary score is daily mean absolute error:
+
+\[
+\operatorname{MAE}
+=
+\frac{1}{|\mathcal{D}|}
+\sum_{d \in \mathcal{D}}
+\left|\widehat{Y}_d - Y_d\right|.
+\]
+
+Relative accuracy is tracked with daily mean absolute percentage error:
+
+\[
+\operatorname{MAPE}
+=
+\frac{100}{|\mathcal{D}|}
+\sum_{d \in \mathcal{D}}
+\left|
+\frac{\widehat{Y}_d - Y_d}{Y_d}
+\right|.
+\]
+
+The calibration period must be updated in this document and in the app header whenever the weather-response fit is regenerated.
+
+\section{Calibration Quality}
+
+Replaying the measured days from 2026-05-04 through 2026-05-12 gives:
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+Metric & Value \\
+\midrule
+Days compared & 7 \\
+Actual total & 235.33 kWh \\
+Model total & 238.13 kWh \\
+Daily mean absolute error & 0.44 kWh \\
+Daily RMSE & 0.55 kWh \\
+Daily MAPE & 1.35 percent \\
+Worst daily absolute percentage error & 2.43 percent \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+These are in-sample statistics because the measured days were used for recalibration. Future actuals should be used as out-of-sample checks.
+
+\section{Implementation References}
+
+The corresponding implementation lives in:
+
+\begin{itemize}
+  \item \texttt{src/config.js}: constants and calibration parameters;
+  \item \texttt{src/model.js}: weather adjustment, rooftop profile, storage, export, and totals;
+  \item \texttt{tests/model.test.mjs}: calibration replay tests and model invariants.
+\end{itemize}
+
+\end{document}

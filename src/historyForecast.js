@@ -2,21 +2,37 @@ import { DEFAULTS, LOCATION } from "./config.js";
 import { simulateForecast } from "./model.js";
 import { buildForecastUrl } from "./weather.js";
 
-/**
- * Convert a raw Open-Meteo payload into a SQLite-ready day-ahead history snapshot.
- * Input `now` controls the issue date; output matches history_app.database.save_forecast_run.
- */
 export function captureDayAheadForecast({ forecast, settings = DEFAULTS, now = new Date() }) {
+  return captureForecastSnapshot({
+    forecast,
+    settings,
+    now,
+    targetOffsetDays: 1,
+    source: "Open-Meteo day-ahead"
+  });
+}
+
+/**
+ * Convert a raw Open-Meteo payload into a SQLite-ready history snapshot.
+ * Input `now` controls issue date; `targetOffsetDays` selects today (0) or day-ahead (1).
+ */
+export function captureForecastSnapshot({
+  forecast,
+  settings = DEFAULTS,
+  now = new Date(),
+  targetOffsetDays = 1,
+  source = "Open-Meteo day-ahead"
+}) {
   const effectiveSettings = { ...DEFAULTS, ...settings };
   const issuedDate = zonedDateString(now, LOCATION.timezone);
-  const targetDate = addDays(issuedDate, 1);
+  const targetDate = addDays(issuedDate, targetOffsetDays);
   const [day] = simulateForecast(selectForecastDays(forecast, [targetDate]), effectiveSettings);
 
   if (!day) {
     throw new Error(`Forecast payload does not contain hourly data for ${targetDate}`);
   }
 
-  return snapshotFromDay(day, issuedDate, targetDate, effectiveSettings, now);
+  return snapshotFromDay(day, issuedDate, targetDate, effectiveSettings, now, source);
 }
 
 /**
@@ -29,15 +45,29 @@ export function buildHistoryForecastUrl(settings = DEFAULTS, forecastDays = 3) {
 /**
  * Map the shared browser day model into the Python history app's persisted field names.
  */
-function snapshotFromDay(day, issuedDate, targetDate, settings, now) {
+function snapshotFromDay(day, issuedDate, targetDate, settings, now, source) {
+  const hours = day.hours.map(hour => ({
+    timestamp: hour.time,
+    hour: hour.hour,
+    theoretical_kwh: round(hour.theoreticalPv, 3),
+    forecast_kwh: round(hour.pv, 3),
+    delivered_kwh: round(hour.deliveredPv, 3),
+    curtailed_kwh: round(hour.curtailed, 3),
+    irradiance_wm2: round(hour.irradiance || 0, 3),
+    cloud_pct: round(hour.cloudCover || 0, 3),
+    rain_mm: round(hour.precipitation || 0, 3),
+    temp_c: round(hour.temperature, 3)
+  }));
+
   return {
     issued_at: zonedIsoString(now, LOCATION.timezone),
     issued_date: issuedDate,
     target_date: targetDate,
-    source: "Open-Meteo day-ahead",
+    source,
     location_name: LOCATION.name,
     settings,
     forecast_total_kwh: round(sum(day.hours, "pv"), 3),
+    simple_forecast_total_kwh: simpleDailyForecastTotal(day.sunshineHours, hours),
     theoretical_total_kwh: round(sum(day.hours, "theoreticalPv"), 3),
     delivered_total_kwh: round(sum(day.hours, "deliveredPv"), 3),
     curtailed_total_kwh: round(sum(day.hours, "curtailed"), 3),
@@ -49,19 +79,19 @@ function snapshotFromDay(day, issuedDate, targetDate, settings, now) {
       cloud_cover_mean: day.cloud,
       sunshine_duration: day.sunshineHours * 3600
     },
-    hours: day.hours.map(hour => ({
-      timestamp: hour.time,
-      hour: hour.hour,
-      theoretical_kwh: round(hour.theoreticalPv, 3),
-      forecast_kwh: round(hour.pv, 3),
-      delivered_kwh: round(hour.deliveredPv, 3),
-      curtailed_kwh: round(hour.curtailed, 3),
-      irradiance_wm2: round(hour.irradiance || 0, 3),
-      cloud_pct: round(hour.cloudCover || 0, 3),
-      rain_mm: round(hour.precipitation || 0, 3),
-      temp_c: round(hour.temperature, 3)
-    }))
+    hours
   };
+}
+
+/**
+ * Simple out-of-sample candidate model from docs/forecast-generalization-report.md.
+ * It predicts only the daily total; hourly allocation remains the existing model curve.
+ */
+export function simpleDailyForecastTotal(sunshineHours, hours) {
+  const daylightRain = hours
+    .filter(hour => Number(hour.irradiance_wm2 || 0) > 0)
+    .reduce((total, hour) => total + Number(hour.rain_mm || 0), 0);
+  return round(Math.max(0, 18.3545 + 2.351 * Number(sunshineHours || 0) - 1.9219 * daylightRain), 3);
 }
 
 /**

@@ -3,8 +3,8 @@ import unittest
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from history_app.database import forecast_detail, hourly_error_metrics, init_db, list_comparisons, parse_hourly_values, parse_number, save_actual, save_forecast_run
-from history_app.forecast_model import LOCATION, build_forecast_url, capture_day_ahead_forecast
+from history_app.database import forecast_detail, hourly_error_metrics, init_db, list_comparisons, parse_hourly_values, parse_number, save_actual, save_forecast_run, simple_forecast_total
+from history_app.forecast_model import LOCATION, build_forecast_url, capture_day_ahead_forecast, capture_same_day_forecast
 
 
 class HistoryAppTest(unittest.TestCase):
@@ -17,9 +17,22 @@ class HistoryAppTest(unittest.TestCase):
 
         self.assertEqual(snapshot["issued_date"], "2026-05-03")
         self.assertEqual(snapshot["target_date"], "2026-05-04")
+        self.assertEqual(snapshot["source"], "Open-Meteo day-ahead")
         self.assertEqual(len(snapshot["hours"]), 24)
         self.assertGreater(snapshot["forecast_total_kwh"], 0)
+        self.assertAlmostEqual(snapshot["simple_forecast_total_kwh"], 46.567, places=3)
         self.assertLessEqual(max(hour["delivered_kwh"] for hour in snapshot["hours"]), 6)
+
+    def test_capture_same_day_forecast_uses_issued_date_as_target(self):
+        snapshot = capture_same_day_forecast(
+            now=datetime(2026, 5, 3, 8, tzinfo=ZoneInfo(LOCATION["timezone"])),
+            forecast=sample_forecast("2026-05-03", "2026-05-04"),
+        )
+
+        self.assertEqual(snapshot["issued_date"], "2026-05-03")
+        self.assertEqual(snapshot["target_date"], "2026-05-03")
+        self.assertEqual(snapshot["source"], "Open-Meteo same-day")
+        self.assertEqual(len(snapshot["hours"]), 24)
 
     def test_sqlite_stores_forecast_actuals_and_comparison_metrics(self):
         con = sqlite3.connect(":memory:")
@@ -38,12 +51,24 @@ class HistoryAppTest(unittest.TestCase):
         detail = forecast_detail(con, run_id)
 
         self.assertEqual(comparison["actual_total_kwh"], round(sum(hourly_actual), 3))
+        self.assertEqual(comparison["simple_forecast_total_kwh"], snapshot["simple_forecast_total_kwh"])
         self.assertLess(comparison["error_kwh"], 0)
+        self.assertIsNotNone(comparison["simple_error_kwh"])
         self.assertEqual(comparison["hourly_points"], 24)
         self.assertIsNotNone(comparison["hourly_rmse_kwh"])
         self.assertEqual(detail["run"]["id"], run_id)
         self.assertEqual(len(detail["hours"]), 24)
         self.assertEqual(len(detail["actual_hours"]), 24)
+
+    def test_simple_forecast_total_uses_sunshine_and_daylight_rain(self):
+        weather = {"sunshine_duration": 8 * 3600}
+        hours = [
+            {"irradiance_wm2": 0, "rain_mm": 10},
+            {"irradiance_wm2": 120, "rain_mm": 2},
+            {"irradiance_wm2": 300, "rain_mm": 1},
+        ]
+
+        self.assertEqual(simple_forecast_total(weather, hours), 31.397)
 
     def test_actual_parsing_accepts_german_decimal_commas(self):
         values = parse_hourly_values("0,00 0,10 0,20 0,30 0,40 0,50 0,60 0,70 0,80 0,90 1,00 1,10 1,20 1,30 1,40 1,50 1,60 1,70 1,80 1,90 2,00 2,10 2,20 2,30")

@@ -21,6 +21,7 @@ button, input, textarea, select { font: inherit; }
 button, select, input, textarea { border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); }
 button { min-height: 40px; padding: 0 14px; font-weight: 800; cursor: pointer; }
 button:hover { border-color: var(--blue); }
+.actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
 .grid { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 18px; align-items: start; margin-bottom: 18px; }
 .panel { padding: 18px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.92); box-shadow: var(--shadow); }
 .panel-title { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
@@ -32,17 +33,18 @@ input[type="date"] { min-height: 52px; font-size: 1rem; }
 .date-control input { margin-top: 0; min-height: 52px; font-size: 1.08rem; font-variant-numeric: tabular-nums; }
 .native-date { cursor: pointer; }
 textarea { resize: vertical; min-height: 140px; }
-.summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 12px 0 16px; }
+.summary { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin: 12px 0 16px; }
 .metric { min-height: 78px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: #fbfcfb; }
 .metric span { display: block; color: var(--muted); font-size: .82rem; }
-.metric strong { display: block; margin-top: 6px; font-size: 1.35rem; font-variant-numeric: tabular-nums; }
+.metric strong { display: block; margin-top: 6px; font-size: clamp(1rem, 1.35vw, 1.35rem); font-variant-numeric: tabular-nums; }
 canvas { display: block; width: 100%; max-width: 100%; height: 320px; }
 .table-wrap { overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; min-width: 900px; }
+table { width: 100%; border-collapse: collapse; min-width: 1080px; }
 th, td { padding: 10px 9px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
 th:first-child, td:first-child, th:nth-child(2), td:nth-child(2) { text-align: left; }
 tbody tr { cursor: pointer; }
 tbody tr:hover, tbody tr.selected { background: #eef4ef; }
 #message.error { color: #853b24; }
+@media (max-width: 1100px) { .summary { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 900px) { .topbar, .grid { grid-template-columns: 1fr; display: grid; } .summary { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 520px) { .date-control { grid-template-columns: 1fr; } }

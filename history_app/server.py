@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from .database import connect, forecast_detail, init_db, list_comparisons, parse_hourly_values, parse_number, save_actual, save_forecast_run
-from .forecast_model import capture_day_ahead_forecast
+from .forecast_model import capture_day_ahead_forecast, capture_same_day_forecast
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = Path(__file__).resolve().parent / "static"
@@ -34,6 +35,10 @@ class HistoryHandler(SimpleHTTPRequestHandler):
             body = self.read_json()
             if parsed.path == "/api/capture":
                 snapshot = capture_day_ahead_forecast()
+                run_id = save_forecast_run(db(), snapshot)
+                return self.send_json({"forecast_run_id": run_id, **snapshot})
+            if parsed.path == "/api/capture-today":
+                snapshot = capture_same_day_forecast()
                 run_id = save_forecast_run(db(), snapshot)
                 return self.send_json({"forecast_run_id": run_id, **snapshot})
             if parsed.path == "/api/actuals":
@@ -96,8 +101,9 @@ def db():
 def main() -> None:
     con = connect()
     init_db(con)
-    server = ThreadingHTTPServer(("127.0.0.1", 4183), HistoryHandler)
-    print("SolarGen history app: http://127.0.0.1:4183")
+    port = int(os.environ.get("PORT", "4183"))
+    server = ThreadingHTTPServer(("127.0.0.1", port), HistoryHandler)
+    print(f"SolarGen history app: http://127.0.0.1:{port}")
     server.serve_forever()
 
 

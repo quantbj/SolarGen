@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
 import { DEFAULTS, LOCATION } from "./config.js";
-import { buildHistoryForecastUrl, captureDayAheadForecast } from "./historyForecast.js";
+import { buildHistoryForecastUrl, captureForecastSnapshot } from "./historyForecast.js";
 
 const [command, payloadPath] = process.argv.slice(2);
 
@@ -11,10 +11,12 @@ try {
     writeJson({ url: buildHistoryForecastUrl(payload.settings || DEFAULTS, payload.forecast_days || 3) });
   } else if (command === "capture") {
     const payload = readPayload(payloadPath);
-    writeJson(captureDayAheadForecast({
+    writeJson(captureForecastSnapshot({
       forecast: payload.forecast,
       settings: payload.settings || DEFAULTS,
-      now: payload.now ? new Date(payload.now) : new Date()
+      now: payload.now ? new Date(payload.now) : new Date(),
+      targetOffsetDays: payload.target_offset_days ?? 1,
+      source: payload.source || "Open-Meteo day-ahead"
     }));
   } else if (command === "location") {
     writeJson(LOCATION);

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 DB_PATH = Path(__file__).resolve().parents[1] / "data" / "solargen_history.sqlite3"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def connect(db_path: Path = DB_PATH) -> sqlite3.Connection:
@@ -38,6 +38,7 @@ def init_db(con: sqlite3.Connection) -> None:
           settings_json TEXT NOT NULL,
           weather_json TEXT NOT NULL,
           forecast_total_kwh REAL NOT NULL,
+          simple_forecast_total_kwh REAL,
           theoretical_total_kwh REAL NOT NULL,
           delivered_total_kwh REAL NOT NULL,
           curtailed_total_kwh REAL NOT NULL,
@@ -80,6 +81,8 @@ def init_db(con: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_forecast_runs_issued_at ON forecast_runs(issued_at);
         """
     )
+    ensure_column(con, "forecast_runs", "simple_forecast_total_kwh", "REAL")
+    backfill_simple_forecasts(con)
     con.execute(
         "INSERT OR REPLACE INTO schema_meta(key, value) VALUES('schema_version', ?)",
         (str(SCHEMA_VERSION),),
@@ -88,20 +91,24 @@ def init_db(con: sqlite3.Connection) -> None:
 
 
 def save_forecast_run(con: sqlite3.Connection, snapshot: dict[str, Any]) -> int:
+    simple_total = snapshot.get("simple_forecast_total_kwh")
+    if simple_total is None:
+        simple_total = simple_forecast_total(snapshot.get("weather", {}), snapshot.get("hours", []))
     with con:
         con.execute(
             """
             INSERT INTO forecast_runs (
               issued_at, issued_date, target_date, source, location_name,
-              settings_json, weather_json, forecast_total_kwh, theoretical_total_kwh,
+              settings_json, weather_json, forecast_total_kwh, simple_forecast_total_kwh, theoretical_total_kwh,
               delivered_total_kwh, curtailed_total_kwh
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(issued_date, target_date, source) DO UPDATE SET
               issued_at=excluded.issued_at,
               location_name=excluded.location_name,
               settings_json=excluded.settings_json,
               weather_json=excluded.weather_json,
               forecast_total_kwh=excluded.forecast_total_kwh,
+              simple_forecast_total_kwh=excluded.simple_forecast_total_kwh,
               theoretical_total_kwh=excluded.theoretical_total_kwh,
               delivered_total_kwh=excluded.delivered_total_kwh,
               curtailed_total_kwh=excluded.curtailed_total_kwh
@@ -115,6 +122,7 @@ def save_forecast_run(con: sqlite3.Connection, snapshot: dict[str, Any]) -> int:
                 json.dumps(snapshot["settings"], sort_keys=True),
                 json.dumps(snapshot.get("weather", {}), sort_keys=True),
                 snapshot["forecast_total_kwh"],
+                round(float(simple_total), 3),
                 snapshot["theoretical_total_kwh"],
                 snapshot["delivered_total_kwh"],
                 snapshot["curtailed_total_kwh"],
@@ -205,6 +213,7 @@ def list_comparisons(con: sqlite3.Connection) -> list[dict[str, Any]]:
           fr.target_date,
           fr.source,
           fr.forecast_total_kwh,
+          fr.simple_forecast_total_kwh,
           fr.theoretical_total_kwh,
           fr.delivered_total_kwh,
           fr.curtailed_total_kwh,
@@ -221,12 +230,17 @@ def list_comparisons(con: sqlite3.Connection) -> list[dict[str, Any]]:
         actual = item.get("actual_total_kwh")
         if actual is not None:
             error = actual - item["forecast_total_kwh"]
+            simple_error = actual - item["simple_forecast_total_kwh"] if item.get("simple_forecast_total_kwh") is not None else None
             item["error_kwh"] = round(error, 3)
             item["error_pct"] = round((error / item["forecast_total_kwh"]) * 100, 2) if item["forecast_total_kwh"] else None
+            item["simple_error_kwh"] = round(simple_error, 3) if simple_error is not None else None
+            item["simple_error_pct"] = round((simple_error / item["simple_forecast_total_kwh"]) * 100, 2) if simple_error is not None and item["simple_forecast_total_kwh"] else None
             item.update(hourly_error_metrics(con, item["id"], item["target_date"]))
         else:
             item["error_kwh"] = None
             item["error_pct"] = None
+            item["simple_error_kwh"] = None
+            item["simple_error_pct"] = None
             item["hourly_mae_kwh"] = None
             item["hourly_rmse_kwh"] = None
             item["hourly_points"] = 0
@@ -267,6 +281,40 @@ def hourly_error_metrics(con: sqlite3.Connection, run_id: int, target_date: str)
     mae = sum(abs(error) for error in errors) / len(errors)
     rmse = (sum(error * error for error in errors) / len(errors)) ** 0.5
     return {"hourly_mae_kwh": round(mae, 3), "hourly_rmse_kwh": round(rmse, 3), "hourly_points": len(rows)}
+
+
+def ensure_column(con: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    columns = {row["name"] for row in con.execute(f"PRAGMA table_info({table})")}
+    if column not in columns:
+        con.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
+def backfill_simple_forecasts(con: sqlite3.Connection) -> None:
+    runs = con.execute(
+        "SELECT id, weather_json FROM forecast_runs WHERE simple_forecast_total_kwh IS NULL"
+    ).fetchall()
+    for run in runs:
+        hours = [
+            dict(row)
+            for row in con.execute(
+                "SELECT irradiance_wm2, rain_mm FROM forecast_hours WHERE forecast_run_id=? ORDER BY hour",
+                (run["id"],),
+            )
+        ]
+        con.execute(
+            "UPDATE forecast_runs SET simple_forecast_total_kwh=? WHERE id=?",
+            (simple_forecast_total(json.loads(run["weather_json"]), hours), run["id"]),
+        )
+
+
+def simple_forecast_total(weather: dict[str, Any], hours: list[dict[str, Any]]) -> float:
+    sunshine_hours = float(weather.get("sunshine_duration") or 0) / 3600
+    daylight_rain = sum(
+        float(hour.get("rain_mm") or 0)
+        for hour in hours
+        if float(hour.get("irradiance_wm2") or 0) > 0
+    )
+    return round(max(0, 18.3545 + 2.351 * sunshine_hours - 1.9219 * daylight_rain), 3)
 
 
 def parse_hourly_values(text: str) -> list[float]:

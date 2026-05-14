@@ -11,6 +11,7 @@ import {
 const state = { comparisons: [], selectedId: null, detail: null };
 const els = {
   captureBtn: document.getElementById('captureBtn'),
+  captureTodayBtn: document.getElementById('captureTodayBtn'),
   actualForm: document.getElementById('actualForm'),
   actualDate: document.getElementById('actualDate'),
   actualDateText: document.getElementById('actualDateText'),
@@ -28,6 +29,7 @@ init();
 
 async function init() {
   els.captureBtn.addEventListener('click', captureForecast);
+  els.captureTodayBtn.addEventListener('click', captureTodayForecast);
   els.actualForm.addEventListener('submit', saveActuals);
   els.runSelect.addEventListener('change', () => selectRun(Number(els.runSelect.value)));
   els.actualDate.addEventListener('change', () => syncDateText(els.actualDate.value));
@@ -40,6 +42,17 @@ async function captureForecast() {
   try {
     await fetchJson('/api/capture', { method: 'POST', body: '{}' });
     setMessage('Saved day-ahead forecast snapshot.');
+    await loadComparisons();
+  } catch (error) {
+    setMessage(error.message, true);
+  }
+}
+
+async function captureTodayForecast() {
+  setMessage('Fetching Open-Meteo and saving same-day forecast...');
+  try {
+    await fetchJson('/api/capture-today', { method: 'POST', body: '{}' });
+    setMessage('Saved same-day forecast snapshot.');
     await loadComparisons();
   } catch (error) {
     setMessage(error.message, true);
@@ -127,9 +140,12 @@ function renderTable() {
       <td>${dateOnly(item.issued_date)}</td>
       <td>${dateOnly(item.target_date)}</td>
       <td>${fmt(item.forecast_total_kwh, 1)}</td>
+      <td>${item.simple_forecast_total_kwh == null ? '--' : fmt(item.simple_forecast_total_kwh, 1)}</td>
       <td>${item.actual_total_kwh == null ? '--' : fmt(item.actual_total_kwh, 1)}</td>
       <td>${item.error_kwh == null ? '--' : signed(item.error_kwh, 1)}</td>
+      <td>${item.simple_error_kwh == null ? '--' : signed(item.simple_error_kwh, 1)}</td>
       <td>${item.error_pct == null ? '--' : signed(item.error_pct, 1) + '%'}</td>
+      <td>${item.simple_error_pct == null ? '--' : signed(item.simple_error_pct, 1) + '%'}</td>
       <td>${item.hourly_rmse_kwh == null ? '--' : fmt(item.hourly_rmse_kwh, 2)}</td>
       <td>${item.hourly_points}</td>
     </tr>`).join('');
@@ -139,37 +155,52 @@ function renderTable() {
 function renderSummary() {
   const c = state.detail.comparison;
   els.summary.innerHTML = `
-    <div class="metric"><span>Forecast</span><strong>${fmt(c.forecast_total_kwh, 1)} kWh</strong></div>
+    <div class="metric"><span>Current model</span><strong>${fmt(c.forecast_total_kwh, 1)} kWh</strong></div>
+    <div class="metric"><span>Simple model</span><strong>${c.simple_forecast_total_kwh == null ? '--' : fmt(c.simple_forecast_total_kwh, 1) + ' kWh'}</strong></div>
     <div class="metric"><span>Actual</span><strong>${c.actual_total_kwh == null ? '--' : fmt(c.actual_total_kwh, 1) + ' kWh'}</strong></div>
-    <div class="metric"><span>Total error</span><strong>${c.error_kwh == null ? '--' : signed(c.error_kwh, 1) + ' kWh'}</strong></div>
+    <div class="metric"><span>Current error</span><strong>${c.error_kwh == null ? '--' : signed(c.error_kwh, 1) + ' kWh'}</strong></div>
+    <div class="metric"><span>Simple error</span><strong>${c.simple_error_kwh == null ? '--' : signed(c.simple_error_kwh, 1) + ' kWh'}</strong></div>
     <div class="metric"><span>Hourly RMSE</span><strong>${c.hourly_rmse_kwh == null ? '--' : fmt(c.hourly_rmse_kwh, 2) + ' kWh'}</strong></div>`;
 }
 
 function renderEmpty() {
   els.summary.innerHTML = '<p>Capture a day-ahead forecast to start the local history.</p>';
-  drawChart([], []);
+  drawChart([], [], []);
 }
 
 function renderChart() {
   const forecast = state.detail.hours.map(hour => hour.forecast_kwh);
+  const simple = simpleHourlyForecast(forecast, state.detail.comparison?.simple_forecast_total_kwh);
   const actual = Array(24).fill(null);
   for (const row of state.detail.actual_hours || []) actual[row.hour] = row.generation_kwh;
-  drawChart(forecast, actual);
+  drawChart(forecast, simple, actual);
 }
 
-function drawChart(forecast, actual) {
+function simpleHourlyForecast(forecast, simpleTotal) {
+  if (simpleTotal == null) return [];
+  const currentTotal = forecast.reduce((total, value) => total + value, 0);
+  if (!currentTotal) return Array(24).fill(0);
+  const scale = simpleTotal / currentTotal;
+  return forecast.map(value => value * scale);
+}
+
+function drawChart(forecast, simple, actual) {
   const canvas = els.chart;
   const ctx = setupCanvas(canvas);
   const rect = chartRect(canvas, 44, 28, 38, 24);
-  const max = Math.max(1, ...forecast, ...actual.filter(Number.isFinite)) * 1.2;
+  const max = Math.max(1, ...forecast, ...simple, ...actual.filter(Number.isFinite)) * 1.2;
   drawGrid(ctx, rect, 4, step => fmt(max * step / 4, 1));
   drawSeriesLine(ctx, rect, forecast.map((value, hour) => [hour, value]), max, COLORS.blue, 3);
+  if (simple.length) {
+    drawSeriesLine(ctx, rect, simple.map((value, hour) => [hour, value]), max, COLORS.vermillion, 3);
+  }
   if (actual.some(Number.isFinite)) {
     drawSeriesLine(ctx, rect, actual.map((value, hour) => [hour, value ?? 0]), max, COLORS.purple, 3);
   }
   drawTimeLabels(ctx, rect, rect.y + rect.h + 26);
   drawLegend(ctx, [
-    { id: 'forecast', color: COLORS.blue, label: 'Forecast' },
+    { id: 'forecast', color: COLORS.blue, label: 'Current model' },
+    { id: 'simple', color: COLORS.vermillion, label: 'Simple model', disabled: !simple.length },
     { id: 'actual', color: COLORS.purple, label: 'Actual', disabled: !actual.some(Number.isFinite) }
   ], rect.x, 16);
 }

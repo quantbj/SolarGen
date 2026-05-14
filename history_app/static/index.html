@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>SolarGen History</title>
-    <link rel="stylesheet" href="history.css?v=20260505-date-input">
+    <link rel="stylesheet" href="history.css?v=20260514-same-day">
   </head>
   <body>
     <main class="shell">
@@ -12,9 +12,12 @@
         <div>
           <p class="eyebrow">Local SQLite database</p>
           <h1>SolarGen History</h1>
-          <p>Store day-ahead forecasts on this computer, enter actual generation, and compare total kWh plus the hourly profile.</p>
+          <p>Store day-ahead forecasts on this computer, enter actual generation, and compare the current model with the simple out-of-sample candidate.</p>
         </div>
-        <button id="captureBtn" type="button">Capture day-ahead forecast</button>
+        <div class="actions">
+          <button id="captureBtn" type="button">Capture day-ahead</button>
+          <button id="captureTodayBtn" type="button">Capture same-day</button>
+        </div>
       </header>
 
       <section class="grid">
@@ -46,10 +49,13 @@
               <tr>
                 <th>Issued</th>
                 <th>Target</th>
-                <th>Forecast</th>
+                <th>Current</th>
+                <th>Simple</th>
                 <th>Actual</th>
-                <th>Error</th>
-                <th>Error %</th>
+                <th>Current err</th>
+                <th>Simple err</th>
+                <th>Current %</th>
+                <th>Simple %</th>
                 <th>Hourly RMSE</th>
                 <th>Hourly points</th>
               </tr>
@@ -59,6 +65,6 @@
         </div>
       </section>
     </main>
-    <script type="module" src="history.js?v=20260509-refactor"></script>
+    <script type="module" src="history.js?v=20260514-same-day"></script>
   </body>
 </html>

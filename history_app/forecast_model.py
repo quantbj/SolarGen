@@ -43,12 +43,44 @@ def capture_day_ahead_forecast(
     now: datetime | None = None,
     forecast: dict | None = None,
 ) -> dict[str, Any]:
+    return capture_forecast_snapshot(
+        settings=settings,
+        now=now,
+        forecast=forecast,
+        target_offset_days=1,
+        source="Open-Meteo day-ahead",
+    )
+
+
+def capture_same_day_forecast(
+    settings: dict | None = None,
+    now: datetime | None = None,
+    forecast: dict | None = None,
+) -> dict[str, Any]:
+    return capture_forecast_snapshot(
+        settings=settings,
+        now=now,
+        forecast=forecast,
+        target_offset_days=0,
+        source="Open-Meteo same-day",
+    )
+
+
+def capture_forecast_snapshot(
+    settings: dict | None = None,
+    now: datetime | None = None,
+    forecast: dict | None = None,
+    target_offset_days: int = 1,
+    source: str = "Open-Meteo day-ahead",
+) -> dict[str, Any]:
     effective_settings = {**DEFAULTS, **(settings or {})}
     forecast = forecast or fetch_open_meteo(effective_settings)
     payload = {
         "settings": effective_settings,
         "forecast": forecast,
         "now": now.isoformat() if now else None,
+        "target_offset_days": target_offset_days,
+        "source": source,
     }
     return _run_shared_model("capture", payload)
 
