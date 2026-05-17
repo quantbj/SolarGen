@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>SolarGen History</title>
-    <link rel="stylesheet" href="history.css?v=20260514-same-day">
+    <link rel="stylesheet" href="history.css?v=20260517-ecoflow">
   </head>
   <body>
     <main class="shell">
@@ -12,11 +12,13 @@
         <div>
           <p class="eyebrow">Local SQLite database</p>
           <h1>SolarGen History</h1>
-          <p>Store day-ahead forecasts on this computer, enter actual generation, and compare the current model with the simple out-of-sample candidate.</p>
+          <p>Store Open-Meteo and DWD day-ahead forecasts on this computer, enter actual generation, and compare the current model with the simple out-of-sample candidate.</p>
         </div>
         <div class="actions">
-          <button id="captureBtn" type="button">Capture day-ahead</button>
-          <button id="captureTodayBtn" type="button">Capture same-day</button>
+          <button id="captureBtn" type="button">Capture Open-Meteo day-ahead</button>
+          <button id="captureTodayBtn" type="button">Capture Open-Meteo same-day</button>
+          <button id="captureDwdBtn" type="button">Capture DWD day-ahead</button>
+          <button id="captureDwdTodayBtn" type="button">Capture DWD same-day</button>
         </div>
       </header>
 
@@ -42,6 +44,15 @@
       </section>
 
       <section class="panel">
+        <div class="panel-title">
+          <h2>EcoFlow generation</h2>
+          <span id="ecoflowDate" class="panel-note"></span>
+        </div>
+        <div id="ecoflowSummary" class="summary compact"></div>
+        <canvas id="ecoflowChart" height="340" aria-label="EcoFlow solar power and battery state of charge"></canvas>
+      </section>
+
+      <section class="panel">
         <h2>Stored comparisons</h2>
         <div class="table-wrap">
           <table>
@@ -49,8 +60,9 @@
               <tr>
                 <th>Issued</th>
                 <th>Target</th>
+                <th>Source</th>
                 <th>Current</th>
-                <th>Simple</th>
+                <th>Simple / uplift</th>
                 <th>Actual</th>
                 <th>Current err</th>
                 <th>Simple err</th>
@@ -65,6 +77,6 @@
         </div>
       </section>
     </main>
-    <script type="module" src="history.js?v=20260514-same-day"></script>
+    <script type="module" src="history.js?v=20260517-refactor"></script>
   </body>
 </html>

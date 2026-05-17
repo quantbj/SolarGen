@@ -7,7 +7,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .database import connect, init_db, list_comparisons, parse_hourly_values, save_actual, save_forecast_run
-from .forecast_model import LOCATION, capture_day_ahead_forecast, capture_same_day_forecast
+from .forecast_model import LOCATION, capture_day_ahead_forecast, capture_dwd_day_ahead_forecast, capture_dwd_same_day_forecast, capture_same_day_forecast
 
 
 def main() -> None:
@@ -21,6 +21,12 @@ def main() -> None:
 
     capture_today = sub.add_parser("capture-today", help="Fetch and store the current same-day forecast")
     capture_today.add_argument("--at", help="ISO timestamp used as issue time, mainly for tests/backfill")
+
+    capture_dwd = sub.add_parser("capture-dwd", help="Fetch and store the current DWD MOSMIX day-ahead forecast")
+    capture_dwd.add_argument("--at", help="ISO timestamp used as issue time, mainly for tests/backfill")
+
+    capture_dwd_today = sub.add_parser("capture-dwd-today", help="Fetch and store the current DWD MOSMIX same-day composite forecast")
+    capture_dwd_today.add_argument("--at", help="ISO timestamp used as issue time, mainly for tests/backfill")
 
     actual = sub.add_parser("actual", help="Store actual generation for a day")
     actual.add_argument("date", help="Actual generation date, YYYY-MM-DD")
@@ -50,6 +56,20 @@ def main() -> None:
     if args.command == "capture-today":
         issued_at = parse_issue_time(args.at) if args.at else None
         snapshot = capture_same_day_forecast(now=issued_at)
+        run_id = save_forecast_run(con, snapshot)
+        print(json.dumps({"forecast_run_id": run_id, **snapshot}, indent=2))
+        return
+
+    if args.command == "capture-dwd":
+        issued_at = parse_issue_time(args.at) if args.at else None
+        snapshot = capture_dwd_day_ahead_forecast(now=issued_at)
+        run_id = save_forecast_run(con, snapshot)
+        print(json.dumps({"forecast_run_id": run_id, **snapshot}, indent=2))
+        return
+
+    if args.command == "capture-dwd-today":
+        issued_at = parse_issue_time(args.at) if args.at else None
+        snapshot = capture_dwd_same_day_forecast(now=issued_at)
         run_id = save_forecast_run(con, snapshot)
         print(json.dumps({"forecast_run_id": run_id, **snapshot}, indent=2))
         return

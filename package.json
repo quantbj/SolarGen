@@ -5,11 +5,14 @@
   "type": "module",
   "scripts": {
     "start": "python3 -m http.server 4173",
-    "check": "node --check src/config.js && node --check src/utils.js && node --check src/chartCore.js && node --check src/model.js && node --check src/weather.js && node --check src/historyForecast.js && node --check src/historyForecastCli.mjs && node --check src/charts.js && node --check src/main.js && node --check history_app/static/history.js && python3 -m py_compile history_app/*.py",
+    "check": "node --check src/config.js && node --check src/utils.js && node --check src/chartCore.js && node --check src/model.js && node --check src/weather.js && node --check src/historyForecast.js && node --check src/historyForecastCli.mjs && node --check src/charts.js && node --check src/main.js && node --check history_app/static/history.js && node --check history_app/static/historyApi.js && node --check history_app/static/historyCharts.js && node --check history_app/static/historyChartMath.js && node --check history_app/static/historyFormat.js && node --check history_app/static/forecastView.js && node --check history_app/static/ecoflowView.js && python3 -m py_compile history_app/*.py ecoflow/*.py scripts/*.py",
     "test": "node --test && python3 -m unittest discover -s tests -p 'test_*.py'",
     "coverage": "node --test --experimental-test-coverage --test-coverage-include='src/*.js' --test-coverage-exclude='src/main.js' --test-coverage-lines=90 --test-coverage-functions=85 --test-coverage-branches=80 tests/*.mjs && python3 -m trace --count --summary --missing --coverdir=/tmp/solargen-py-cover --ignore-dir=/Library/Developer/CommandLineTools --module unittest discover -s tests -p 'test_*.py'",
     "history": "python3 -m history_app.server",
     "history:capture": "python3 -m history_app.cli capture",
-    "history:list": "python3 -m history_app.cli list"
+    "history:list": "python3 -m history_app.cli list",
+    "ecoflow": "python3 scripts/ecoflow_iot.py",
+    "ecoflow:mqtt": "python3 scripts/ecoflow_mqtt_collect.py",
+    "ecoflow:poll": "python3 scripts/ecoflow_api_poll_collect.py"
   }
 }

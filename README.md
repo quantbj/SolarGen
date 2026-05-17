@@ -116,6 +116,40 @@ npm run coverage
 npm start
 ```
 
+## EcoFlow IoT
+
+Local EcoFlow credentials are read from `EcoflowIoT/access.txt` or from `ECOFLOW_ACCESS_KEY` and `ECOFLOW_SECRET_KEY`. The credentials file is ignored by git.
+
+Read current solar/battery state plus today's history:
+
+```sh
+npm run ecoflow
+```
+
+Persist current generation, battery percentage, household load, and grid power every 5 seconds via REST polling:
+
+```sh
+npm run ecoflow:poll
+```
+
+Useful polling options:
+
+```sh
+python3 scripts/ecoflow_api_poll_collect.py --sn DEVICE_SERIAL
+python3 scripts/ecoflow_api_poll_collect.py --interval 10
+python3 scripts/ecoflow_api_poll_collect.py --once
+```
+
+Useful options:
+
+```sh
+python3 scripts/ecoflow_iot.py --sn DEVICE_SERIAL
+python3 scripts/ecoflow_iot.py --json --raw
+python3 scripts/ecoflow_iot.py --date 2026-05-17 --timezone Europe/Berlin
+python3 scripts/ecoflow_iot.py --history-profile powerocean
+python3 scripts/ecoflow_iot.py --history-profile stream
+```
+
 ## Key Defaults
 
 - Location: OHZ / Osterholz-Scharmbeck, Germany (`53.226`, `8.795`)

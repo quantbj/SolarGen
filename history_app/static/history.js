@@ -1,17 +1,34 @@
 import {
-  COLORS,
-  chartRect,
-  drawGrid,
-  drawLegend,
-  drawSeriesLine,
-  drawTimeLabels,
-  setupCanvas
-} from '/shared/chartCore.js';
+  captureForecast as postCaptureForecast,
+  fetchComparisons,
+  fetchEcoflowTicks,
+  fetchForecast,
+  saveActuals as postActuals
+} from './historyApi.js';
+import {
+  renderEmptyForecast,
+  renderForecastChart,
+  renderForecastSelect,
+  renderForecastSummary,
+  renderForecastTable
+} from './forecastView.js';
+import { renderEcoflow, renderEcoflowError } from './ecoflowView.js';
+import { dateOnly, todayDate } from './historyFormat.js';
 
-const state = { comparisons: [], selectedId: null, detail: null };
+const ECOFLOW_REFRESH_MS = 60_000;
+const state = {
+  comparisons: [],
+  selectedId: null,
+  detail: null,
+  ecoflow: null,
+  refreshingEcoflow: false
+};
+
 const els = {
   captureBtn: document.getElementById('captureBtn'),
   captureTodayBtn: document.getElementById('captureTodayBtn'),
+  captureDwdBtn: document.getElementById('captureDwdBtn'),
+  captureDwdTodayBtn: document.getElementById('captureDwdTodayBtn'),
   actualForm: document.getElementById('actualForm'),
   actualDate: document.getElementById('actualDate'),
   actualDateText: document.getElementById('actualDateText'),
@@ -22,37 +39,32 @@ const els = {
   runSelect: document.getElementById('runSelect'),
   rows: document.getElementById('rows'),
   summary: document.getElementById('summary'),
-  chart: document.getElementById('profileChart')
+  chart: document.getElementById('profileChart'),
+  ecoflowDate: document.getElementById('ecoflowDate'),
+  ecoflowSummary: document.getElementById('ecoflowSummary'),
+  ecoflowChart: document.getElementById('ecoflowChart')
 };
 
 init();
 
 async function init() {
-  els.captureBtn.addEventListener('click', captureForecast);
-  els.captureTodayBtn.addEventListener('click', captureTodayForecast);
+  els.captureBtn.addEventListener('click', () => captureForecast('/api/capture', 'Fetching Open-Meteo and saving day-ahead forecast...', 'Saved Open-Meteo day-ahead forecast snapshot.'));
+  els.captureTodayBtn.addEventListener('click', () => captureForecast('/api/capture-today', 'Fetching Open-Meteo and saving same-day forecast...', 'Saved same-day forecast snapshot.'));
+  els.captureDwdBtn.addEventListener('click', () => captureForecast('/api/capture-dwd', 'Fetching DWD MOSMIX and saving day-ahead forecast...', 'Saved DWD day-ahead forecast snapshot.'));
+  els.captureDwdTodayBtn.addEventListener('click', () => captureForecast('/api/capture-dwd-today', 'Fetching DWD MOSMIX and saving same-day composite forecast...', 'Saved DWD same-day forecast snapshot.'));
   els.actualForm.addEventListener('submit', saveActuals);
   els.runSelect.addEventListener('change', () => selectRun(Number(els.runSelect.value)));
   els.actualDate.addEventListener('change', () => syncDateText(els.actualDate.value));
   els.actualDateText.addEventListener('input', () => syncNativeDate(els.actualDateText.value));
   await loadComparisons();
+  window.setInterval(refreshEcoflowData, ECOFLOW_REFRESH_MS);
 }
 
-async function captureForecast() {
-  setMessage('Fetching Open-Meteo and saving day-ahead forecast...');
+async function captureForecast(path, pendingMessage, successMessage) {
+  setMessage(pendingMessage);
   try {
-    await fetchJson('/api/capture', { method: 'POST', body: '{}' });
-    setMessage('Saved day-ahead forecast snapshot.');
-    await loadComparisons();
-  } catch (error) {
-    setMessage(error.message, true);
-  }
-}
-
-async function captureTodayForecast() {
-  setMessage('Fetching Open-Meteo and saving same-day forecast...');
-  try {
-    await fetchJson('/api/capture-today', { method: 'POST', body: '{}' });
-    setMessage('Saved same-day forecast snapshot.');
+    await postCaptureForecast(path);
+    setMessage(successMessage);
     await loadComparisons();
   } catch (error) {
     setMessage(error.message, true);
@@ -62,15 +74,12 @@ async function captureTodayForecast() {
 async function saveActuals(event) {
   event.preventDefault();
   try {
-    await fetchJson('/api/actuals', {
-      method: 'POST',
-      body: JSON.stringify({
-        date: normalizedDateInput(),
-        total_kwh: els.actualTotal.value,
-        hourly: els.actualHourly.value,
-        source: 'manual',
-        notes: els.actualNotes.value
-      })
+    await postActuals({
+      date: normalizedDateInput(),
+      total_kwh: els.actualTotal.value,
+      hourly: els.actualHourly.value,
+      source: 'manual',
+      notes: els.actualNotes.value
     });
     setMessage('Saved actual generation.');
     await loadComparisons();
@@ -80,24 +89,54 @@ async function saveActuals(event) {
 }
 
 async function loadComparisons() {
-  state.comparisons = await fetchJson('/api/comparisons');
+  state.comparisons = await fetchComparisons();
   if (!state.selectedId && state.comparisons.length) state.selectedId = state.comparisons[0].id;
-  renderTable();
-  renderSelect();
-  if (state.selectedId) await selectRun(state.selectedId);
-  else renderEmpty();
+  renderForecastTable(els.rows, state.comparisons, state.selectedId, selectRun);
+  renderForecastSelect(els.runSelect, state.comparisons, state.selectedId);
+  if (state.selectedId) {
+    await selectRun(state.selectedId);
+  } else {
+    renderEmptyForecast(els.summary, els.chart);
+    await loadEcoflowTicks(todayDate());
+  }
 }
 
 async function selectRun(id) {
   state.selectedId = id;
-  state.detail = await fetchJson(`/api/forecast?id=${id}`);
+  state.detail = await fetchForecast(id);
   if (state.detail?.run?.target_date) setActualDate(state.detail.run.target_date);
-  renderTable();
-  renderSelect();
-  renderSummary();
-  renderChart();
+  await loadEcoflowTicks(dateOnly(state.detail?.run?.target_date) || todayDate());
+  renderForecastTable(els.rows, state.comparisons, state.selectedId, selectRun);
+  renderForecastSelect(els.runSelect, state.comparisons, state.selectedId);
+  renderSelectedForecast();
 }
 
+async function loadEcoflowTicks(date) {
+  try {
+    state.ecoflow = await fetchEcoflowTicks(date);
+    renderEcoflow(els.ecoflowDate, els.ecoflowSummary, els.ecoflowChart, state.ecoflow);
+  } catch (error) {
+    state.ecoflow = null;
+    renderEcoflowError(els.ecoflowSummary, els.ecoflowChart, error.message);
+  }
+}
+
+async function refreshEcoflowData() {
+  if (state.refreshingEcoflow) return;
+  const date = dateOnly(state.detail?.run?.target_date) || state.ecoflow?.date || todayDate();
+  state.refreshingEcoflow = true;
+  try {
+    await loadEcoflowTicks(date);
+    if (state.detail) renderSelectedForecast();
+  } finally {
+    state.refreshingEcoflow = false;
+  }
+}
+
+function renderSelectedForecast() {
+  renderForecastSummary(els.summary, state.detail, state.ecoflow);
+  renderForecastChart(els.chart, state.detail, state.ecoflow);
+}
 
 function setActualDate(value) {
   const normalized = dateOnly(value);
@@ -124,87 +163,7 @@ function normalizedDateInput() {
   return value;
 }
 
-function dateOnly(value) {
-  return String(value || '').slice(0, 10);
+function setMessage(text, error = false) {
+  els.message.textContent = text;
+  els.message.classList.toggle('error', error);
 }
-
-function renderSelect() {
-  els.runSelect.innerHTML = state.comparisons.map(item => `<option value="${item.id}">${dateOnly(item.target_date)} from ${dateOnly(item.issued_date)}</option>`).join('') || '<option>No forecasts</option>';
-  els.runSelect.disabled = !state.comparisons.length;
-  if (state.selectedId) els.runSelect.value = String(state.selectedId);
-}
-
-function renderTable() {
-  els.rows.innerHTML = state.comparisons.map(item => `
-    <tr class="${item.id === state.selectedId ? 'selected' : ''}" data-id="${item.id}" tabindex="0">
-      <td>${dateOnly(item.issued_date)}</td>
-      <td>${dateOnly(item.target_date)}</td>
-      <td>${fmt(item.forecast_total_kwh, 1)}</td>
-      <td>${item.simple_forecast_total_kwh == null ? '--' : fmt(item.simple_forecast_total_kwh, 1)}</td>
-      <td>${item.actual_total_kwh == null ? '--' : fmt(item.actual_total_kwh, 1)}</td>
-      <td>${item.error_kwh == null ? '--' : signed(item.error_kwh, 1)}</td>
-      <td>${item.simple_error_kwh == null ? '--' : signed(item.simple_error_kwh, 1)}</td>
-      <td>${item.error_pct == null ? '--' : signed(item.error_pct, 1) + '%'}</td>
-      <td>${item.simple_error_pct == null ? '--' : signed(item.simple_error_pct, 1) + '%'}</td>
-      <td>${item.hourly_rmse_kwh == null ? '--' : fmt(item.hourly_rmse_kwh, 2)}</td>
-      <td>${item.hourly_points}</td>
-    </tr>`).join('');
-  els.rows.querySelectorAll('tr').forEach(row => row.addEventListener('click', () => selectRun(Number(row.dataset.id))));
-}
-
-function renderSummary() {
-  const c = state.detail.comparison;
-  els.summary.innerHTML = `
-    <div class="metric"><span>Current model</span><strong>${fmt(c.forecast_total_kwh, 1)} kWh</strong></div>
-    <div class="metric"><span>Simple model</span><strong>${c.simple_forecast_total_kwh == null ? '--' : fmt(c.simple_forecast_total_kwh, 1) + ' kWh'}</strong></div>
-    <div class="metric"><span>Actual</span><strong>${c.actual_total_kwh == null ? '--' : fmt(c.actual_total_kwh, 1) + ' kWh'}</strong></div>
-    <div class="metric"><span>Current error</span><strong>${c.error_kwh == null ? '--' : signed(c.error_kwh, 1) + ' kWh'}</strong></div>
-    <div class="metric"><span>Simple error</span><strong>${c.simple_error_kwh == null ? '--' : signed(c.simple_error_kwh, 1) + ' kWh'}</strong></div>
-    <div class="metric"><span>Hourly RMSE</span><strong>${c.hourly_rmse_kwh == null ? '--' : fmt(c.hourly_rmse_kwh, 2) + ' kWh'}</strong></div>`;
-}
-
-function renderEmpty() {
-  els.summary.innerHTML = '<p>Capture a day-ahead forecast to start the local history.</p>';
-  drawChart([], [], []);
-}
-
-function renderChart() {
-  const forecast = state.detail.hours.map(hour => hour.forecast_kwh);
-  const simple = simpleHourlyForecast(forecast, state.detail.comparison?.simple_forecast_total_kwh);
-  const actual = Array(24).fill(null);
-  for (const row of state.detail.actual_hours || []) actual[row.hour] = row.generation_kwh;
-  drawChart(forecast, simple, actual);
-}
-
-function simpleHourlyForecast(forecast, simpleTotal) {
-  if (simpleTotal == null) return [];
-  const currentTotal = forecast.reduce((total, value) => total + value, 0);
-  if (!currentTotal) return Array(24).fill(0);
-  const scale = simpleTotal / currentTotal;
-  return forecast.map(value => value * scale);
-}
-
-function drawChart(forecast, simple, actual) {
-  const canvas = els.chart;
-  const ctx = setupCanvas(canvas);
-  const rect = chartRect(canvas, 44, 28, 38, 24);
-  const max = Math.max(1, ...forecast, ...simple, ...actual.filter(Number.isFinite)) * 1.2;
-  drawGrid(ctx, rect, 4, step => fmt(max * step / 4, 1));
-  drawSeriesLine(ctx, rect, forecast.map((value, hour) => [hour, value]), max, COLORS.blue, 3);
-  if (simple.length) {
-    drawSeriesLine(ctx, rect, simple.map((value, hour) => [hour, value]), max, COLORS.vermillion, 3);
-  }
-  if (actual.some(Number.isFinite)) {
-    drawSeriesLine(ctx, rect, actual.map((value, hour) => [hour, value ?? 0]), max, COLORS.purple, 3);
-  }
-  drawTimeLabels(ctx, rect, rect.y + rect.h + 26);
-  drawLegend(ctx, [
-    { id: 'forecast', color: COLORS.blue, label: 'Current model' },
-    { id: 'simple', color: COLORS.vermillion, label: 'Simple model', disabled: !simple.length },
-    { id: 'actual', color: COLORS.purple, label: 'Actual', disabled: !actual.some(Number.isFinite) }
-  ], rect.x, 16);
-}
-async function fetchJson(url, options = {}) { let res; try { res = await fetch(url, { headers: { 'content-type': 'application/json' }, ...options }); } catch (error) { throw new Error('Cannot reach the local SolarGen history server. Start it with: python3 -m history_app.server'); } const data = await res.json(); if (!res.ok) throw new Error(data.error || res.statusText); return data; }
-function setMessage(text, error = false) { els.message.textContent = text; els.message.classList.toggle('error', error); }
-function fmt(value, decimals) { return Number(value).toLocaleString('en-GB', { minimumFractionDigits: decimals, maximumFractionDigits: decimals }); }
-function signed(value, decimals) { return `${value > 0 ? '+' : ''}${fmt(value, decimals)}`; }

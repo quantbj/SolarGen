@@ -7,7 +7,8 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from .database import connect, forecast_detail, init_db, list_comparisons, parse_hourly_values, parse_number, save_actual, save_forecast_run
-from .forecast_model import capture_day_ahead_forecast, capture_same_day_forecast
+from .ecoflow_store import list_ecoflow_ticks
+from .forecast_model import capture_day_ahead_forecast, capture_dwd_day_ahead_forecast, capture_dwd_same_day_forecast, capture_same_day_forecast
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = Path(__file__).resolve().parent / "static"
@@ -25,6 +26,13 @@ class HistoryHandler(SimpleHTTPRequestHandler):
             run_id = int(parse_qs(parsed.query).get("id", ["0"])[0])
             detail = forecast_detail(db(), run_id)
             return self.send_json(detail or {"error": "not found"}, status=200 if detail else 404)
+        if parsed.path == "/api/ecoflow/ticks":
+            query = parse_qs(parsed.query)
+            return self.send_json(list_ecoflow_ticks(
+                db(),
+                query.get("date", [None])[0],
+                query.get("timezone", ["Europe/Berlin"])[0],
+            ))
         if parsed.path.startswith("/shared/"):
             return self.serve_shared_module(parsed.path)
         return super().do_GET()
@@ -39,6 +47,14 @@ class HistoryHandler(SimpleHTTPRequestHandler):
                 return self.send_json({"forecast_run_id": run_id, **snapshot})
             if parsed.path == "/api/capture-today":
                 snapshot = capture_same_day_forecast()
+                run_id = save_forecast_run(db(), snapshot)
+                return self.send_json({"forecast_run_id": run_id, **snapshot})
+            if parsed.path == "/api/capture-dwd":
+                snapshot = capture_dwd_day_ahead_forecast()
+                run_id = save_forecast_run(db(), snapshot)
+                return self.send_json({"forecast_run_id": run_id, **snapshot})
+            if parsed.path == "/api/capture-dwd-today":
+                snapshot = capture_dwd_same_day_forecast()
                 run_id = save_forecast_run(db(), snapshot)
                 return self.send_json({"forecast_run_id": run_id, **snapshot})
             if parsed.path == "/api/actuals":

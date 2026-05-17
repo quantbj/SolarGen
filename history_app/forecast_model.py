@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import tempfile
 import urllib.request
-from datetime import datetime
+import zipfile
+from datetime import datetime, timedelta, timezone
+from io import BytesIO
 from pathlib import Path
 from typing import Any
+from xml.etree import ElementTree
+from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
 NODE_CLI = ROOT / "src" / "historyForecastCli.mjs"
@@ -22,6 +27,27 @@ DEFAULTS = {
     "capacity": 10.0,
     "tilt": 35.0,
     "feedCap": 6.0,
+}
+
+DWD_STATION = {
+    "id": "10224",
+    "name": "BREMEN",
+    "source": "DWD MOSMIX",
+}
+
+DWD_MOSMIX_URL = (
+    "https://opendata.dwd.de/weather/local_forecasts/mos/MOSMIX_L/"
+    "single_stations/{station_id}/kml/MOSMIX_L_LATEST_{station_id}.kmz"
+)
+DWD_MOSMIX_STATION_DIR = (
+    "https://opendata.dwd.de/weather/local_forecasts/mos/MOSMIX_L/"
+    "single_stations/{station_id}/kml/"
+)
+DWD_SIMPLE_UPLIFT_KWH = {
+    # Provisional bias-only calibration from the currently stored DWD/actual overlap.
+    # Keep the Open-Meteo sunshine/rain slopes; adjust DWD's systematic low bias.
+    "DWD MOSMIX day-ahead": 5.145,
+    "DWD MOSMIX same-day": 6.768,
 }
 
 
@@ -66,6 +92,42 @@ def capture_same_day_forecast(
     )
 
 
+def capture_dwd_day_ahead_forecast(
+    settings: dict | None = None,
+    now: datetime | None = None,
+    forecast: dict | None = None,
+) -> dict[str, Any]:
+    normalized = forecast or fetch_dwd_mosmix()
+    snapshot = capture_forecast_snapshot(
+        settings=settings,
+        now=now,
+        forecast=normalized,
+        target_offset_days=1,
+        source="DWD MOSMIX day-ahead",
+    )
+    snapshot["weather"].update(normalized.get("_dwd_meta", {}))
+    apply_dwd_simple_uplift(snapshot)
+    return snapshot
+
+
+def capture_dwd_same_day_forecast(
+    settings: dict | None = None,
+    now: datetime | None = None,
+    forecast: dict | None = None,
+) -> dict[str, Any]:
+    normalized = forecast or fetch_dwd_same_day_composite(now=now)
+    snapshot = capture_forecast_snapshot(
+        settings=settings,
+        now=now,
+        forecast=normalized,
+        target_offset_days=0,
+        source="DWD MOSMIX same-day",
+    )
+    snapshot["weather"].update(normalized.get("_dwd_meta", {}))
+    apply_dwd_simple_uplift(snapshot)
+    return snapshot
+
+
 def capture_forecast_snapshot(
     settings: dict | None = None,
     now: datetime | None = None,
@@ -83,6 +145,281 @@ def capture_forecast_snapshot(
         "source": source,
     }
     return _run_shared_model("capture", payload)
+
+
+def apply_dwd_simple_uplift(snapshot: dict[str, Any]) -> dict[str, Any]:
+    uplift = DWD_SIMPLE_UPLIFT_KWH.get(snapshot.get("source", ""))
+    if uplift is None:
+        return snapshot
+    raw_simple = float(snapshot.get("simple_forecast_total_kwh") or 0)
+    snapshot["simple_forecast_total_kwh"] = round(max(0, raw_simple + uplift), 3)
+    snapshot.setdefault("weather", {}).update(
+        {
+            "dwd_simple_model": "bias-uplifted sunshine/rain simple model",
+            "dwd_simple_raw_kwh": round(raw_simple, 3),
+            "dwd_simple_uplift_kwh": uplift,
+            "dwd_simple_uplift_basis": "mean actual-minus-simple error on stored DWD forecast/actual overlap as of 2026-05-16",
+        }
+    )
+    return snapshot
+
+
+def build_dwd_mosmix_url(station_id: str = DWD_STATION["id"]) -> str:
+    return DWD_MOSMIX_URL.format(station_id=station_id)
+
+
+def build_dwd_mosmix_run_url(stamp: str, station_id: str = DWD_STATION["id"]) -> str:
+    return f"{DWD_MOSMIX_STATION_DIR.format(station_id=station_id)}MOSMIX_L_{stamp}_{station_id}.kmz"
+
+
+def fetch_dwd_mosmix(station_id: str = DWD_STATION["id"], timeout_seconds: int = 20) -> dict[str, Any]:
+    with urllib.request.urlopen(build_dwd_mosmix_url(station_id), timeout=timeout_seconds) as response:
+        payload = response.read()
+    return dwd_mosmix_kmz_to_open_meteo(payload, station_id=station_id)
+
+
+def fetch_dwd_mosmix_run(stamp: str, station_id: str = DWD_STATION["id"], timeout_seconds: int = 20) -> dict[str, Any]:
+    with urllib.request.urlopen(build_dwd_mosmix_run_url(stamp, station_id), timeout=timeout_seconds) as response:
+        payload = response.read()
+    return dwd_mosmix_kmz_to_open_meteo(payload, station_id=station_id)
+
+
+def list_dwd_mosmix_runs(station_id: str = DWD_STATION["id"], timeout_seconds: int = 20) -> list[dict[str, Any]]:
+    with urllib.request.urlopen(DWD_MOSMIX_STATION_DIR.format(station_id=station_id), timeout=timeout_seconds) as response:
+        listing = response.read().decode("utf-8", errors="replace")
+    stamps = sorted(set(re.findall(rf"MOSMIX_L_(\d{{10}})_{re.escape(station_id)}\.kmz", listing)))
+    return [
+        {
+            "stamp": stamp,
+            "issue_time_utc": datetime.strptime(stamp, "%Y%m%d%H").replace(tzinfo=timezone.utc),
+            "url": build_dwd_mosmix_run_url(stamp, station_id),
+        }
+        for stamp in stamps
+    ]
+
+
+def fetch_dwd_same_day_composite(
+    now: datetime | None = None,
+    station_id: str = DWD_STATION["id"],
+    timeout_seconds: int = 20,
+) -> dict[str, Any]:
+    effective_now = ensure_zoned_datetime(now)
+    cutoff = effective_now.astimezone(timezone.utc)
+    runs = [run for run in list_dwd_mosmix_runs(station_id, timeout_seconds) if run["issue_time_utc"] <= cutoff]
+    if not runs:
+        raise RuntimeError("No DWD MOSMIX runs are available before the requested same-day capture time.")
+
+    target_date = effective_now.astimezone(ZoneInfo(LOCATION["timezone"])).strftime("%Y-%m-%d")
+    forecasts = [fetch_dwd_mosmix_run(run["stamp"], station_id, timeout_seconds) for run in runs[-8:]]
+    return compose_dwd_same_day_forecast(forecasts, target_date, effective_now)
+
+
+def compose_dwd_same_day_forecast(
+    forecasts: list[dict[str, Any]],
+    target_date: str,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    cutoff = ensure_zoned_datetime(now).astimezone(timezone.utc)
+    target_times = [f"{target_date}T{hour:02d}:00" for hour in range(24)]
+    selected: dict[str, dict[str, Any]] = {}
+
+    for forecast in forecasts:
+        meta = forecast.get("_dwd_meta", {})
+        issue_time = parse_dwd_time(meta.get("issue_time_utc")).astimezone(timezone.utc)
+        if issue_time > cutoff:
+            continue
+        for index, timestamp in enumerate(forecast.get("hourly", {}).get("time", [])):
+            if timestamp not in target_times:
+                continue
+            previous = selected.get(timestamp)
+            if previous is None or issue_time > previous["issue_time"]:
+                selected[timestamp] = {
+                    "issue_time": issue_time,
+                    "forecast": forecast,
+                    "index": index,
+                    "meta": meta,
+                }
+
+    missing = [timestamp for timestamp in target_times if timestamp not in selected]
+    if missing:
+        raise RuntimeError(f"DWD MOSMIX same-day composite is missing {len(missing)} hourly values for {target_date}.")
+
+    hourly = {
+        "time": [],
+        "temperature_2m": [],
+        "cloud_cover": [],
+        "precipitation": [],
+        "global_tilted_irradiance": [],
+        "is_day": [],
+        "weather_code": [],
+        "sunshine_duration": [],
+    }
+    issue_times_used = []
+    for timestamp in target_times:
+        choice = selected[timestamp]
+        source_hourly = choice["forecast"]["hourly"]
+        index = choice["index"]
+        for key in hourly:
+            hourly[key].append(source_hourly[key][index])
+        issue_times_used.append(choice["meta"].get("issue_time_utc"))
+
+    daily = summarize_hourly_daily(hourly)
+    first_meta = next(iter(selected.values()))["meta"]
+    return {
+        "hourly": hourly,
+        "daily": daily,
+        "_dwd_meta": {
+            **first_meta,
+            "same_day_composite": True,
+            "target_date": target_date,
+            "issue_times_used_utc": sorted(set(issue_times_used)),
+            "hour_selection": "newest available DWD MOSMIX forecast for each target hour at capture time",
+        },
+    }
+
+
+def dwd_mosmix_kmz_to_open_meteo(payload: bytes, station_id: str = DWD_STATION["id"]) -> dict[str, Any]:
+    with zipfile.ZipFile(BytesIO(payload)) as archive:
+        kml_name = next(name for name in archive.namelist() if name.endswith(".kml"))
+        root = ElementTree.fromstring(archive.read(kml_name))
+    return dwd_mosmix_xml_to_open_meteo(root, station_id=station_id)
+
+
+def dwd_mosmix_xml_to_open_meteo(root: ElementTree.Element, station_id: str = DWD_STATION["id"]) -> dict[str, Any]:
+    ns = {
+        "dwd": "https://opendata.dwd.de/weather/lib/pointforecast_dwd_extension_V1_0.xsd",
+        "kml": "http://www.opengis.net/kml/2.2",
+    }
+    timezone = ZoneInfo(LOCATION["timezone"])
+    issue_time = text_or_empty(root.find(".//dwd:IssueTime", ns))
+    placemark = root.find(".//kml:Placemark", ns)
+    station_name = text_or_empty(placemark.find("kml:description", ns)) if placemark is not None else DWD_STATION["name"]
+    station_code = text_or_empty(placemark.find("kml:name", ns)) if placemark is not None else station_id
+    steps = [
+        parse_dwd_time(node.text).astimezone(timezone) - timedelta(hours=1)
+        for node in root.findall(".//dwd:ForecastTimeSteps/dwd:TimeStep", ns)
+    ]
+    series = {
+        node.attrib.get(f"{{{ns['dwd']}}}elementName"): parse_dwd_values(text_or_empty(node.find("dwd:value", ns)))
+        for node in root.findall(".//dwd:Forecast", ns)
+    }
+
+    hourly = {
+        "time": [],
+        "temperature_2m": [],
+        "cloud_cover": [],
+        "precipitation": [],
+        "global_tilted_irradiance": [],
+        "is_day": [],
+        "weather_code": [],
+        "sunshine_duration": [],
+    }
+    for index, step in enumerate(steps):
+        irradiance = max(0.0, value_at(series, "Rad1h", index, 0.0) / 3.6)
+        sunshine = value_at(series, "SunD1", index, 0.0)
+        hourly["time"].append(step.strftime("%Y-%m-%dT%H:00"))
+        hourly["temperature_2m"].append(round(value_at(series, "TTT", index, 289.15) - 273.15, 3))
+        hourly["cloud_cover"].append(round(value_at(series, "N", index, 0.0), 3))
+        hourly["precipitation"].append(round(value_at(series, "RR1c", index, 0.0), 3))
+        hourly["global_tilted_irradiance"].append(round(irradiance, 3))
+        hourly["is_day"].append(1 if irradiance > 0 or sunshine > 0 else 0)
+        hourly["weather_code"].append(round(value_at(series, "ww", index, 0.0)))
+        hourly["sunshine_duration"].append(round(sunshine, 3))
+
+    daily = summarize_dwd_daily(hourly, series, steps)
+    return {
+        "hourly": hourly,
+        "daily": daily,
+        "_dwd_meta": {
+            "provider": "Deutscher Wetterdienst",
+            "product": "MOSMIX_L",
+            "station_id": station_code or station_id,
+            "station_name": station_name or DWD_STATION["name"],
+            "issue_time_utc": issue_time,
+            "irradiance_source": "Rad1h horizontal global radiation, converted from kJ/m2 per hour to W/m2 hourly average",
+        },
+    }
+
+
+def summarize_hourly_daily(hourly: dict[str, list[Any]]) -> dict[str, list[Any]]:
+    temperatures = hourly["temperature_2m"]
+    clouds = hourly["cloud_cover"]
+    rains = hourly["precipitation"]
+    weather_codes = hourly["weather_code"]
+    return {
+        "time": [hourly["time"][0][:10]],
+        "weather_code": [max(weather_codes) if weather_codes else 0],
+        "temperature_2m_max": [round(max(temperatures), 3) if temperatures else None],
+        "temperature_2m_min": [round(min(temperatures), 3) if temperatures else None],
+        "precipitation_sum": [round(sum(rains), 3)],
+        "cloud_cover_mean": [round(sum(clouds) / len(clouds), 3) if clouds else 0],
+        "sunshine_duration": [round(sum(hourly.get("sunshine_duration", [])), 3)],
+    }
+
+
+def summarize_dwd_daily(hourly: dict[str, list[Any]], series: dict[str, list[float | None]], steps: list[datetime]) -> dict[str, list[Any]]:
+    grouped: dict[str, list[int]] = {}
+    for index, step in enumerate(steps):
+        grouped.setdefault(step.strftime("%Y-%m-%d"), []).append(index)
+
+    daily = {
+        "time": [],
+        "weather_code": [],
+        "temperature_2m_max": [],
+        "temperature_2m_min": [],
+        "precipitation_sum": [],
+        "cloud_cover_mean": [],
+        "sunshine_duration": [],
+    }
+    for date, indexes in grouped.items():
+        temperatures = [hourly["temperature_2m"][index] for index in indexes]
+        clouds = [hourly["cloud_cover"][index] for index in indexes]
+        rains = [hourly["precipitation"][index] for index in indexes]
+        weather_codes = [hourly["weather_code"][index] for index in indexes]
+        daily["time"].append(date)
+        daily["weather_code"].append(max(weather_codes) if weather_codes else 0)
+        daily["temperature_2m_max"].append(round(max(temperatures), 3) if temperatures else None)
+        daily["temperature_2m_min"].append(round(min(temperatures), 3) if temperatures else None)
+        daily["precipitation_sum"].append(round(sum(rains), 3))
+        daily["cloud_cover_mean"].append(round(sum(clouds) / len(clouds), 3) if clouds else 0)
+        daily["sunshine_duration"].append(round(sum(value_at(series, "SunD1", index, 0.0) for index in indexes), 3))
+    return daily
+
+
+def parse_dwd_time(value: str | None) -> datetime:
+    if not value:
+        raise ValueError("DWD MOSMIX payload is missing forecast time steps.")
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def ensure_zoned_datetime(value: datetime | None = None) -> datetime:
+    timezone_info = ZoneInfo(LOCATION["timezone"])
+    if value is None:
+        return datetime.now(timezone_info)
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone_info)
+    return value.astimezone(timezone_info)
+
+
+def parse_dwd_values(text: str) -> list[float | None]:
+    values: list[float | None] = []
+    for token in text.split():
+        try:
+            values.append(float(token))
+        except ValueError:
+            values.append(None)
+    return values
+
+
+def text_or_empty(node: ElementTree.Element | None) -> str:
+    return (node.text or "").strip() if node is not None else ""
+
+
+def value_at(series: dict[str, list[float | None]], name: str, index: int, fallback: float) -> float:
+    values = series.get(name, [])
+    if index >= len(values) or values[index] is None:
+        return fallback
+    return float(values[index])
 
 
 def _run_shared_model(command: str, payload: dict[str, Any]) -> dict[str, Any]:

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 DB_PATH = Path(__file__).resolve().parents[1] / "data" / "solargen_history.sqlite3"
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def connect(db_path: Path = DB_PATH) -> sqlite3.Connection:
@@ -79,6 +79,24 @@ def init_db(con: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_forecast_runs_target_date ON forecast_runs(target_date);
         CREATE INDEX IF NOT EXISTS idx_forecast_runs_issued_at ON forecast_runs(issued_at);
+
+        CREATE TABLE IF NOT EXISTS ecoflow_ticks (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          received_at TEXT NOT NULL,
+          device_sn TEXT NOT NULL,
+          device_name TEXT NOT NULL DEFAULT '',
+          topic TEXT NOT NULL DEFAULT '',
+          source_timestamp TEXT,
+          solar_power_w REAL,
+          battery_soc_percent REAL,
+          battery_power_w REAL,
+          load_power_w REAL,
+          grid_power_w REAL,
+          raw_json TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_ecoflow_ticks_received_at ON ecoflow_ticks(received_at);
+        CREATE INDEX IF NOT EXISTS idx_ecoflow_ticks_device_received ON ecoflow_ticks(device_sn, received_at);
         """
     )
     ensure_column(con, "forecast_runs", "simple_forecast_total_kwh", "REAL")
