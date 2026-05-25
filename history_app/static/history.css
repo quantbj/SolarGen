@@ -24,6 +24,8 @@ button:hover { border-color: var(--blue); }
 .actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
 .grid { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 18px; align-items: start; margin-bottom: 18px; }
 .panel { position: relative; padding: 18px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.92); box-shadow: var(--shadow); }
+.shell > .panel { margin-bottom: 18px; }
+.shell > .panel:last-child { margin-bottom: 0; }
 .panel-title { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .panel-note { color: var(--muted); font-size: .9rem; font-weight: 700; }
 label { display: block; margin-bottom: 14px; color: var(--muted); font-weight: 650; }

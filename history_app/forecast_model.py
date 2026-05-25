@@ -43,12 +43,11 @@ DWD_MOSMIX_STATION_DIR = (
     "https://opendata.dwd.de/weather/local_forecasts/mos/MOSMIX_L/"
     "single_stations/{station_id}/kml/"
 )
-DWD_SIMPLE_UPLIFT_KWH = {
-    # Provisional bias-only calibration from the currently stored DWD/actual overlap.
-    # Keep the Open-Meteo sunshine/rain slopes; adjust DWD's systematic low bias.
-    "DWD MOSMIX day-ahead": 5.145,
-    "DWD MOSMIX same-day": 6.768,
-}
+DWD_DAY_AHEAD_SIMPLE_BIAS_KWH = 5.975
+DWD_SIMPLE_CALIBRATION_BASIS = (
+    "stored DWD day-ahead forecast/actual overlap through 2026-05-23; "
+    "leave-one-day-out tests favoured the DWD day-ahead simple model over the current model"
+)
 
 
 def build_forecast_url(settings: dict | None = None, forecast_days: int = 3) -> str:
@@ -148,19 +147,31 @@ def capture_forecast_snapshot(
 
 
 def apply_dwd_simple_uplift(snapshot: dict[str, Any]) -> dict[str, Any]:
-    uplift = DWD_SIMPLE_UPLIFT_KWH.get(snapshot.get("source", ""))
-    if uplift is None:
+    source = snapshot.get("source", "")
+    if source not in {"DWD MOSMIX day-ahead", "DWD MOSMIX same-day"}:
         return snapshot
     raw_simple = float(snapshot.get("simple_forecast_total_kwh") or 0)
-    snapshot["simple_forecast_total_kwh"] = round(max(0, raw_simple + uplift), 3)
-    snapshot.setdefault("weather", {}).update(
-        {
-            "dwd_simple_model": "bias-uplifted sunshine/rain simple model",
-            "dwd_simple_raw_kwh": round(raw_simple, 3),
-            "dwd_simple_uplift_kwh": uplift,
-            "dwd_simple_uplift_basis": "mean actual-minus-simple error on stored DWD forecast/actual overlap as of 2026-05-16",
-        }
-    )
+    weather = snapshot.setdefault("weather", {})
+    if source == "DWD MOSMIX day-ahead":
+        snapshot["simple_forecast_total_kwh"] = round(max(0, raw_simple + DWD_DAY_AHEAD_SIMPLE_BIAS_KWH), 3)
+        weather.update(
+            {
+                "dwd_simple_model": "hybrid: day-ahead sunshine/rain simple model plus calibrated bias",
+                "dwd_simple_raw_kwh": round(raw_simple, 3),
+                "dwd_simple_uplift_kwh": DWD_DAY_AHEAD_SIMPLE_BIAS_KWH,
+                "dwd_simple_uplift_basis": DWD_SIMPLE_CALIBRATION_BASIS,
+            }
+        )
+    else:
+        snapshot["simple_forecast_total_kwh"] = round(float(snapshot.get("forecast_total_kwh") or 0), 3)
+        weather.update(
+            {
+                "dwd_simple_model": "hybrid: same-day uses current DWD model because it generalized better than simple uplift",
+                "dwd_simple_raw_kwh": round(raw_simple, 3),
+                "dwd_simple_uplift_kwh": 0.0,
+                "dwd_simple_uplift_basis": DWD_SIMPLE_CALIBRATION_BASIS,
+            }
+        )
     return snapshot
 
 

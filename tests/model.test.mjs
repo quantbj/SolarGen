@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { DEFAULTS } from "../src/config.js";
+import { CALIBRATION, DEFAULTS } from "../src/config.js";
 import {
   clearSkyPoa,
   applyRooftopProfile,
@@ -119,7 +119,7 @@ test("high-cloud rooftop profile uses a calibrated diffuse-light ramp", () => {
   assert.ok(cloudyEvening < clearEvening);
 });
 
-test("clear full-sun modeled rooftop generation calibrates to the measured screenshot day", () => {
+test("clear full-sun modeled rooftop generation calibrates to the configured production target", () => {
   const forecast = oneDayForecast({
     irradianceByHour: hour => clearSkyPoa("2026-05-01", hour, DEFAULTS.tilt),
     date: "2026-05-01"
@@ -133,7 +133,7 @@ test("clear full-sun modeled rooftop generation calibrates to the measured scree
     eveningLoad: 0
   });
 
-  assert.ok(Math.abs(day.pv - 50.23) < 0.15);
+  assert.ok(Math.abs(day.pv - CALIBRATION.clearDayKwh) < 0.15);
   assert.ok(day.hours.every(hour => hour.deliveredPv <= DEFAULTS.feedCap));
   assert.ok(day.hours.find(hour => hour.hour === 8).pv < 1.5);
   assert.ok(day.hours.find(hour => hour.hour === 11).deliveredPv >= 5.9);

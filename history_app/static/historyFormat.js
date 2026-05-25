@@ -28,7 +28,9 @@ export function sourceLabel(source) {
 }
 
 export function simpleLabel(source) {
-  return String(source || '').startsWith('DWD MOSMIX') ? 'DWD uplift' : 'Simple model';
+  if (source === 'DWD MOSMIX day-ahead') return 'DWD simple+bias';
+  if (source === 'DWD MOSMIX same-day') return 'DWD current';
+  return 'Simple model';
 }
 
 export function escapeHtml(value) {

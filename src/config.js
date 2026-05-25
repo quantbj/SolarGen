@@ -7,7 +7,9 @@ export const LOCATION = {
 
 export const CALIBRATION = {
   date: "2026-05-01",
-  clearDayKwh: 50.23
+  // Recalibrated on stored Open-Meteo day-ahead forecast/actual history through 2026-05-23.
+  // The out-of-sample tests favoured the current model for OM DA, with a small scale reduction.
+  clearDayKwh: 48.753
 };
 
 export const ROOFTOP_PROFILE = {

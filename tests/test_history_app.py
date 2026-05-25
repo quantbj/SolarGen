@@ -48,6 +48,8 @@ class HistoryAppTest(unittest.TestCase):
         self.assertEqual(snapshot["source"], "DWD MOSMIX day-ahead")
         self.assertEqual(snapshot["weather"]["provider"], "Deutscher Wetterdienst")
         self.assertEqual(snapshot["weather"]["station_id"], "10224")
+        self.assertEqual(snapshot["weather"]["dwd_simple_model"], "hybrid: day-ahead sunshine/rain simple model plus calibrated bias")
+        self.assertGreater(snapshot["simple_forecast_total_kwh"], snapshot["weather"]["dwd_simple_raw_kwh"])
 
     def test_capture_dwd_same_day_forecast_keeps_separate_source(self):
         forecast = sample_forecast("2026-05-03", "2026-05-04")
@@ -60,6 +62,9 @@ class HistoryAppTest(unittest.TestCase):
         self.assertEqual(snapshot["target_date"], "2026-05-03")
         self.assertEqual(snapshot["source"], "DWD MOSMIX same-day")
         self.assertTrue(snapshot["weather"]["same_day_composite"])
+        self.assertEqual(snapshot["weather"]["dwd_simple_model"], "hybrid: same-day uses current DWD model because it generalized better than simple uplift")
+        self.assertEqual(snapshot["simple_forecast_total_kwh"], round(snapshot["forecast_total_kwh"], 3))
+        self.assertNotEqual(snapshot["simple_forecast_total_kwh"], snapshot["weather"]["dwd_simple_raw_kwh"])
 
     def test_sqlite_stores_forecast_actuals_and_comparison_metrics(self):
         con = sqlite3.connect(":memory:")
