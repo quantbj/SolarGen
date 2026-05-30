@@ -28,9 +28,10 @@ export function sourceLabel(source) {
 }
 
 export function simpleLabel(source) {
-  if (source === 'DWD MOSMIX day-ahead') return 'DWD simple+bias';
+  if (source === 'Production blend day-ahead') return 'Production blend';
+  if (source === 'DWD MOSMIX day-ahead') return 'DWD stable input';
   if (source === 'DWD MOSMIX same-day') return 'DWD current';
-  return 'Simple model';
+  return 'Production model';
 }
 
 export function escapeHtml(value) {

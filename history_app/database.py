@@ -239,7 +239,9 @@ def list_comparisons(con: sqlite3.Connection) -> list[dict[str, Any]]:
           ad.source AS actual_source
         FROM forecast_runs fr
         LEFT JOIN actual_days ad ON ad.date = fr.target_date
-        ORDER BY fr.target_date DESC, fr.issued_at DESC
+        ORDER BY fr.target_date DESC, fr.issued_at DESC,
+          CASE WHEN fr.source='Production blend day-ahead' THEN 0 ELSE 1 END,
+          fr.source
         """
     ).fetchall()
     result = []

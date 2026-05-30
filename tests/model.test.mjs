@@ -297,7 +297,7 @@ test("history capture selects the day-ahead forecast and serializes hourly value
   assert.equal(snapshot.source, "Open-Meteo day-ahead");
   assert.equal(snapshot.hours.length, 24);
   assert.ok(snapshot.forecast_total_kwh > 0);
-  assert.equal(snapshot.simple_forecast_total_kwh, 36.64);
+  assert.equal(snapshot.simple_forecast_total_kwh, 34.07);
   assert.match(buildHistoryForecastUrl({ tilt: 40 }, 2), /forecast_days=2/);
 });
 

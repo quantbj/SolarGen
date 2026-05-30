@@ -42,14 +42,15 @@ export function renderForecastTable(rows, comparisons, selectedId, onSelect) {
 export function renderForecastSummary(container, detail, ecoflow) {
   const comparison = detail.comparison;
   const ecoflowGeneration = ecoflow?.summary?.generation_kwh;
+  const isProduction = comparison.source === 'Production blend day-ahead';
   container.innerHTML = [
-    metric('Current model', `${fmt(comparison.forecast_total_kwh, 1)} kWh`),
+    metric(isProduction ? 'Production forecast' : 'Source/input', `${fmt(comparison.forecast_total_kwh, 1)} kWh`),
     metric(simpleLabel(comparison.source), comparison.simple_forecast_total_kwh == null ? '--' : `${fmt(comparison.simple_forecast_total_kwh, 1)} kWh`),
     metric('Source', sourceLabel(comparison.source)),
     metric('Actual', comparison.actual_total_kwh == null ? '--' : `${fmt(comparison.actual_total_kwh, 1)} kWh`),
     metric('EcoFlow', ecoflowGeneration == null ? '--' : `${fmt(ecoflowGeneration, 2)} kWh`),
-    metric('Current error', comparison.error_kwh == null ? '--' : `${signed(comparison.error_kwh, 1)} kWh`),
-    metric('Simple error', comparison.simple_error_kwh == null ? '--' : `${signed(comparison.simple_error_kwh, 1)} kWh`),
+    metric(isProduction ? 'Production error' : 'Input error', comparison.error_kwh == null ? '--' : `${signed(comparison.error_kwh, 1)} kWh`),
+    metric('Blend error', comparison.simple_error_kwh == null ? '--' : `${signed(comparison.simple_error_kwh, 1)} kWh`),
     metric('Hourly RMSE', comparison.hourly_rmse_kwh == null ? '--' : `${fmt(comparison.hourly_rmse_kwh, 2)} kWh`)
   ].join('');
 }
@@ -84,7 +85,7 @@ function drawForecastChart(canvas, detail, forecast, simple, actual, ecoflow) {
   const left = 44;
   const right = 24;
   const legendItems = [
-    { id: 'forecast', color: COLORS.blue, label: 'Current model' },
+    { id: 'forecast', color: COLORS.blue, label: detail?.comparison?.source === 'Production blend day-ahead' ? 'Production forecast' : 'Source/input' },
     { id: 'simple', color: COLORS.vermillion, label: simpleLabel(detail?.comparison?.source), disabled: !simple.length },
     { id: 'actual', color: COLORS.purple, label: 'Manual actual', disabled: !actual.some(Number.isFinite) },
     { id: 'ecoflow', color: COLORS.black, label: 'EcoFlow generation', disabled: !ecoflowValues.length }

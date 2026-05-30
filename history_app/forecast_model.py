@@ -43,10 +43,20 @@ DWD_MOSMIX_STATION_DIR = (
     "https://opendata.dwd.de/weather/local_forecasts/mos/MOSMIX_L/"
     "single_stations/{station_id}/kml/"
 )
-DWD_DAY_AHEAD_SIMPLE_BIAS_KWH = 5.975
+DWD_DAY_AHEAD_SIMPLE_CURRENT_WEIGHT = 0.25
+DWD_DAY_AHEAD_SIMPLE_RAW_WEIGHT = 0.75
+DWD_DAY_AHEAD_SIMPLE_BIAS_KWH = 4.039
 DWD_SIMPLE_CALIBRATION_BASIS = (
-    "stored DWD day-ahead forecast/actual overlap through 2026-05-23; "
-    "leave-one-day-out tests favoured the DWD day-ahead simple model over the current model"
+    "leave-one-target-date-out day-ahead history through 2026-05-29; "
+    "best stable model blends 25% current model with 75% raw sunshine/rain simple model"
+)
+PRODUCTION_BLEND_SOURCE = "Production blend day-ahead"
+PRODUCTION_BLEND_OM_WEIGHT = 0.71
+PRODUCTION_BLEND_DWD_WEIGHT = 0.29
+PRODUCTION_BLEND_BIAS_KWH = -0.113
+PRODUCTION_BLEND_BASIS = (
+    "leave-one-target-date-out paired OM+DWD day-ahead history through 2026-05-29; "
+    "production = 0.71 * OM current + 0.29 * DWD stable simple - 0.113 kWh"
 )
 
 
@@ -127,6 +137,88 @@ def capture_dwd_same_day_forecast(
     return snapshot
 
 
+def capture_production_day_ahead_forecasts(
+    settings: dict | None = None,
+    now: datetime | None = None,
+    open_meteo_forecast: dict | None = None,
+    dwd_forecast: dict | None = None,
+) -> list[dict[str, Any]]:
+    om_snapshot = capture_day_ahead_forecast(settings=settings, now=now, forecast=open_meteo_forecast)
+    dwd_snapshot = capture_dwd_day_ahead_forecast(settings=settings, now=now, forecast=dwd_forecast)
+    return [om_snapshot, dwd_snapshot, blend_production_day_ahead(om_snapshot, dwd_snapshot)]
+
+
+def blend_production_day_ahead(om_snapshot: dict[str, Any], dwd_snapshot: dict[str, Any]) -> dict[str, Any]:
+    if om_snapshot["issued_date"] != dwd_snapshot["issued_date"]:
+        raise ValueError("OM and DWD production inputs must have the same issued date.")
+    if om_snapshot["target_date"] != dwd_snapshot["target_date"]:
+        raise ValueError("OM and DWD production inputs must have the same target date.")
+
+    om_total = float(om_snapshot["forecast_total_kwh"])
+    dwd_simple_total = float(dwd_snapshot["simple_forecast_total_kwh"])
+    production_total = round(max(
+        0,
+        PRODUCTION_BLEND_OM_WEIGHT * om_total +
+        PRODUCTION_BLEND_DWD_WEIGHT * dwd_simple_total +
+        PRODUCTION_BLEND_BIAS_KWH,
+    ), 3)
+
+    om_hours = sorted(om_snapshot["hours"], key=lambda hour: hour["hour"])
+    dwd_hours = sorted(dwd_snapshot["hours"], key=lambda hour: hour["hour"])
+    dwd_current_total = sum(float(hour["forecast_kwh"]) for hour in dwd_hours)
+    dwd_hour_scale = dwd_simple_total / dwd_current_total if dwd_current_total > 0 else 0
+    blended_base = [
+        PRODUCTION_BLEND_OM_WEIGHT * float(om_hour["forecast_kwh"]) +
+        PRODUCTION_BLEND_DWD_WEIGHT * float(dwd_hour["forecast_kwh"]) * dwd_hour_scale
+        for om_hour, dwd_hour in zip(om_hours, dwd_hours)
+    ]
+    base_total = sum(blended_base)
+    production_scale = production_total / base_total if base_total > 0 else 0
+    production_hours = [
+        {
+            **om_hour,
+            "forecast_kwh": round(blended_base[index] * production_scale, 3),
+            "delivered_kwh": round(blended_base[index] * production_scale, 3),
+            "theoretical_kwh": round(blended_base[index] * production_scale, 3),
+            "curtailed_kwh": 0,
+        }
+        for index, om_hour in enumerate(om_hours)
+    ]
+    production_hour_total = round(sum(hour["forecast_kwh"] for hour in production_hours), 3)
+    if production_hours and production_hour_total != production_total:
+        production_hours[-1]["forecast_kwh"] = round(
+            production_hours[-1]["forecast_kwh"] + production_total - production_hour_total,
+            3,
+        )
+        production_hours[-1]["delivered_kwh"] = production_hours[-1]["forecast_kwh"]
+        production_hours[-1]["theoretical_kwh"] = production_hours[-1]["forecast_kwh"]
+
+    weather = {
+        **om_snapshot.get("weather", {}),
+        "production_model": "OM/DWD two-input blend",
+        "production_model_basis": PRODUCTION_BLEND_BASIS,
+        "production_om_weight": PRODUCTION_BLEND_OM_WEIGHT,
+        "production_dwd_weight": PRODUCTION_BLEND_DWD_WEIGHT,
+        "production_bias_kwh": PRODUCTION_BLEND_BIAS_KWH,
+        "production_om_current_kwh": round(om_total, 3),
+        "production_dwd_simple_kwh": round(dwd_simple_total, 3),
+        "production_dwd_current_kwh": round(float(dwd_snapshot["forecast_total_kwh"]), 3),
+        "production_dwd_raw_simple_kwh": dwd_snapshot.get("weather", {}).get("dwd_simple_raw_kwh"),
+        "production_inputs": [om_snapshot["source"], dwd_snapshot["source"]],
+    }
+    return {
+        **om_snapshot,
+        "source": PRODUCTION_BLEND_SOURCE,
+        "weather": weather,
+        "forecast_total_kwh": production_total,
+        "simple_forecast_total_kwh": production_total,
+        "theoretical_total_kwh": production_total,
+        "delivered_total_kwh": production_total,
+        "curtailed_total_kwh": 0,
+        "hours": production_hours,
+    }
+
+
 def capture_forecast_snapshot(
     settings: dict | None = None,
     now: datetime | None = None,
@@ -153,12 +245,20 @@ def apply_dwd_simple_uplift(snapshot: dict[str, Any]) -> dict[str, Any]:
     raw_simple = float(snapshot.get("simple_forecast_total_kwh") or 0)
     weather = snapshot.setdefault("weather", {})
     if source == "DWD MOSMIX day-ahead":
-        snapshot["simple_forecast_total_kwh"] = round(max(0, raw_simple + DWD_DAY_AHEAD_SIMPLE_BIAS_KWH), 3)
+        current_total = float(snapshot.get("forecast_total_kwh") or 0)
+        snapshot["simple_forecast_total_kwh"] = round(max(
+            0,
+            DWD_DAY_AHEAD_SIMPLE_CURRENT_WEIGHT * current_total +
+            DWD_DAY_AHEAD_SIMPLE_RAW_WEIGHT * raw_simple +
+            DWD_DAY_AHEAD_SIMPLE_BIAS_KWH,
+        ), 3)
         weather.update(
             {
-                "dwd_simple_model": "hybrid: day-ahead sunshine/rain simple model plus calibrated bias",
+                "dwd_simple_model": "source-calibrated stable blend",
                 "dwd_simple_raw_kwh": round(raw_simple, 3),
-                "dwd_simple_uplift_kwh": DWD_DAY_AHEAD_SIMPLE_BIAS_KWH,
+                "dwd_simple_current_weight": DWD_DAY_AHEAD_SIMPLE_CURRENT_WEIGHT,
+                "dwd_simple_raw_weight": DWD_DAY_AHEAD_SIMPLE_RAW_WEIGHT,
+                "dwd_simple_bias_kwh": DWD_DAY_AHEAD_SIMPLE_BIAS_KWH,
                 "dwd_simple_uplift_basis": DWD_SIMPLE_CALIBRATION_BASIS,
             }
         )

@@ -8,7 +8,7 @@ from urllib.parse import parse_qs, urlparse
 
 from .database import connect, forecast_detail, init_db, list_comparisons, parse_hourly_values, parse_number, save_actual, save_forecast_run
 from .ecoflow_store import list_ecoflow_ticks
-from .forecast_model import capture_day_ahead_forecast, capture_dwd_day_ahead_forecast, capture_dwd_same_day_forecast, capture_same_day_forecast
+from .forecast_model import capture_day_ahead_forecast, capture_dwd_day_ahead_forecast, capture_dwd_same_day_forecast, capture_production_day_ahead_forecasts, capture_same_day_forecast
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = Path(__file__).resolve().parent / "static"
@@ -57,6 +57,10 @@ class HistoryHandler(SimpleHTTPRequestHandler):
                 snapshot = capture_dwd_same_day_forecast()
                 run_id = save_forecast_run(db(), snapshot)
                 return self.send_json({"forecast_run_id": run_id, **snapshot})
+            if parsed.path == "/api/capture-production":
+                snapshots = capture_production_day_ahead_forecasts()
+                run_ids = [save_forecast_run(db(), snapshot) for snapshot in snapshots]
+                return self.send_json({"forecast_run_ids": run_ids, "production": {"forecast_run_id": run_ids[-1], **snapshots[-1]}})
             if parsed.path == "/api/actuals":
                 hourly = body.get("hourly") or []
                 if isinstance(hourly, str):

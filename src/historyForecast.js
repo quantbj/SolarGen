@@ -2,6 +2,15 @@ import { DEFAULTS, LOCATION } from "./config.js";
 import { simulateForecast } from "./model.js";
 import { buildForecastUrl } from "./weather.js";
 
+export const SIMPLE_FORECAST_CALIBRATIONS = {
+  "Open-Meteo day-ahead": {
+    currentWeight: 1,
+    rawSimpleWeight: 0,
+    biasKwh: -0.227,
+    basis: "leave-one-target-date-out DA history through 2026-05-29"
+  }
+};
+
 export function captureDayAheadForecast({ forecast, settings = DEFAULTS, now = new Date() }) {
   return captureForecastSnapshot({
     forecast,
@@ -59,6 +68,10 @@ function snapshotFromDay(day, issuedDate, targetDate, settings, now, source) {
     temp_c: round(hour.temperature, 3)
   }));
 
+  const currentTotal = round(sum(day.hours, "pv"), 3);
+  const rawSimpleTotal = simpleDailyForecastTotal(day.sunshineHours, hours);
+  const simpleModel = calibratedSimpleForecastTotal(source, currentTotal, rawSimpleTotal);
+
   return {
     issued_at: zonedIsoString(now, LOCATION.timezone),
     issued_date: issuedDate,
@@ -66,8 +79,8 @@ function snapshotFromDay(day, issuedDate, targetDate, settings, now, source) {
     source,
     location_name: LOCATION.name,
     settings,
-    forecast_total_kwh: round(sum(day.hours, "pv"), 3),
-    simple_forecast_total_kwh: simpleDailyForecastTotal(day.sunshineHours, hours),
+    forecast_total_kwh: currentTotal,
+    simple_forecast_total_kwh: simpleModel.total,
     theoretical_total_kwh: round(sum(day.hours, "theoreticalPv"), 3),
     delivered_total_kwh: round(sum(day.hours, "deliveredPv"), 3),
     curtailed_total_kwh: round(sum(day.hours, "curtailed"), 3),
@@ -77,7 +90,13 @@ function snapshotFromDay(day, issuedDate, targetDate, settings, now, source) {
       temperature_2m_min: day.tempMin,
       precipitation_sum: day.rain,
       cloud_cover_mean: day.cloud,
-      sunshine_duration: day.sunshineHours * 3600
+      sunshine_duration: day.sunshineHours * 3600,
+      simple_model: simpleModel.name,
+      simple_raw_kwh: rawSimpleTotal,
+      simple_current_weight: simpleModel.currentWeight,
+      simple_raw_weight: simpleModel.rawSimpleWeight,
+      simple_bias_kwh: simpleModel.biasKwh,
+      simple_calibration_basis: simpleModel.basis
     },
     hours
   };
@@ -92,6 +111,34 @@ export function simpleDailyForecastTotal(sunshineHours, hours) {
     .filter(hour => Number(hour.irradiance_wm2 || 0) > 0)
     .reduce((total, hour) => total + Number(hour.rain_mm || 0), 0);
   return round(Math.max(0, 18.3545 + 2.351 * Number(sunshineHours || 0) - 1.9219 * daylightRain), 3);
+}
+
+export function calibratedSimpleForecastTotal(source, currentTotal, rawSimpleTotal) {
+  const calibration = SIMPLE_FORECAST_CALIBRATIONS[source];
+  if (!calibration) {
+    return {
+      total: rawSimpleTotal,
+      name: "raw sunshine/rain simple model",
+      currentWeight: 0,
+      rawSimpleWeight: 1,
+      biasKwh: 0,
+      basis: "unadjusted raw simple model"
+    };
+  }
+  const total = Math.max(
+    0,
+    calibration.currentWeight * currentTotal +
+    calibration.rawSimpleWeight * rawSimpleTotal +
+    calibration.biasKwh
+  );
+  return {
+    total: round(total, 3),
+    name: "source-calibrated stable blend",
+    currentWeight: calibration.currentWeight,
+    rawSimpleWeight: calibration.rawSimpleWeight,
+    biasKwh: calibration.biasKwh,
+    basis: calibration.basis
+  };
 }
 
 /**

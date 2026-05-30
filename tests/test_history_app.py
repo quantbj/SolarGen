@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 
 from history_app.database import forecast_detail, hourly_error_metrics, init_db, list_comparisons, parse_hourly_values, parse_number, save_actual, save_forecast_run, simple_forecast_total
 from history_app.ecoflow_store import list_ecoflow_ticks, save_ecoflow_tick
-from history_app.forecast_model import LOCATION, build_dwd_mosmix_url, build_forecast_url, capture_day_ahead_forecast, capture_dwd_day_ahead_forecast, capture_dwd_same_day_forecast, capture_same_day_forecast, compose_dwd_same_day_forecast, dwd_mosmix_xml_to_open_meteo
+from history_app.forecast_model import LOCATION, PRODUCTION_BLEND_SOURCE, blend_production_day_ahead, build_dwd_mosmix_url, build_forecast_url, capture_day_ahead_forecast, capture_dwd_day_ahead_forecast, capture_dwd_same_day_forecast, capture_production_day_ahead_forecasts, capture_same_day_forecast, compose_dwd_same_day_forecast, dwd_mosmix_xml_to_open_meteo
 from xml.etree import ElementTree
 
 
@@ -22,7 +22,7 @@ class HistoryAppTest(unittest.TestCase):
         self.assertEqual(snapshot["source"], "Open-Meteo day-ahead")
         self.assertEqual(len(snapshot["hours"]), 24)
         self.assertGreater(snapshot["forecast_total_kwh"], 0)
-        self.assertAlmostEqual(snapshot["simple_forecast_total_kwh"], 46.567, places=3)
+        self.assertAlmostEqual(snapshot["simple_forecast_total_kwh"], 44.652, places=3)
         self.assertLessEqual(max(hour["delivered_kwh"] for hour in snapshot["hours"]), 6)
 
     def test_capture_same_day_forecast_uses_issued_date_as_target(self):
@@ -48,7 +48,7 @@ class HistoryAppTest(unittest.TestCase):
         self.assertEqual(snapshot["source"], "DWD MOSMIX day-ahead")
         self.assertEqual(snapshot["weather"]["provider"], "Deutscher Wetterdienst")
         self.assertEqual(snapshot["weather"]["station_id"], "10224")
-        self.assertEqual(snapshot["weather"]["dwd_simple_model"], "hybrid: day-ahead sunshine/rain simple model plus calibrated bias")
+        self.assertEqual(snapshot["weather"]["dwd_simple_model"], "source-calibrated stable blend")
         self.assertGreater(snapshot["simple_forecast_total_kwh"], snapshot["weather"]["dwd_simple_raw_kwh"])
 
     def test_capture_dwd_same_day_forecast_keeps_separate_source(self):
@@ -65,6 +65,23 @@ class HistoryAppTest(unittest.TestCase):
         self.assertEqual(snapshot["weather"]["dwd_simple_model"], "hybrid: same-day uses current DWD model because it generalized better than simple uplift")
         self.assertEqual(snapshot["simple_forecast_total_kwh"], round(snapshot["forecast_total_kwh"], 3))
         self.assertNotEqual(snapshot["simple_forecast_total_kwh"], snapshot["weather"]["dwd_simple_raw_kwh"])
+
+    def test_production_blend_combines_om_and_dwd_day_ahead_inputs(self):
+        forecast = sample_forecast("2026-05-03", "2026-05-04")
+        snapshots = capture_production_day_ahead_forecasts(
+            now=datetime(2026, 5, 3, 8, tzinfo=ZoneInfo(LOCATION["timezone"])),
+            open_meteo_forecast=forecast,
+            dwd_forecast=forecast,
+        )
+        om_snapshot, dwd_snapshot, production = snapshots
+
+        self.assertEqual(production["source"], PRODUCTION_BLEND_SOURCE)
+        self.assertEqual(production["target_date"], "2026-05-04")
+        self.assertEqual(len(production["hours"]), 24)
+        self.assertEqual(production["simple_forecast_total_kwh"], production["forecast_total_kwh"])
+        self.assertGreater(production["forecast_total_kwh"], min(om_snapshot["forecast_total_kwh"], dwd_snapshot["simple_forecast_total_kwh"]))
+        self.assertLess(production["forecast_total_kwh"], max(om_snapshot["forecast_total_kwh"], dwd_snapshot["simple_forecast_total_kwh"]) + 1)
+        self.assertEqual(production["weather"]["production_model"], "OM/DWD two-input blend")
 
     def test_sqlite_stores_forecast_actuals_and_comparison_metrics(self):
         con = sqlite3.connect(":memory:")
