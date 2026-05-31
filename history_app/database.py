@@ -221,9 +221,15 @@ def save_actual(
             )
 
 
-def list_comparisons(con: sqlite3.Connection) -> list[dict[str, Any]]:
+def list_comparisons(con: sqlite3.Connection, visible_sources: set[str] | None = None) -> list[dict[str, Any]]:
+    source_filter = ""
+    params: list[Any] = []
+    if visible_sources:
+        placeholders = ", ".join("?" for _ in visible_sources)
+        source_filter = f"WHERE fr.source IN ({placeholders})"
+        params = sorted(visible_sources)
     rows = con.execute(
-        """
+        f"""
         SELECT
           fr.id,
           fr.issued_at,
@@ -239,10 +245,12 @@ def list_comparisons(con: sqlite3.Connection) -> list[dict[str, Any]]:
           ad.source AS actual_source
         FROM forecast_runs fr
         LEFT JOIN actual_days ad ON ad.date = fr.target_date
+        {source_filter}
         ORDER BY fr.target_date DESC, fr.issued_at DESC,
           CASE WHEN fr.source='Production blend day-ahead' THEN 0 ELSE 1 END,
           fr.source
-        """
+        """,
+        params,
     ).fetchall()
     result = []
     for row in rows:

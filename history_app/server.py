@@ -8,7 +8,7 @@ from urllib.parse import parse_qs, urlparse
 
 from .database import connect, forecast_detail, init_db, list_comparisons, parse_hourly_values, parse_number, save_actual, save_forecast_run
 from .ecoflow_store import list_ecoflow_ticks
-from .forecast_model import capture_day_ahead_forecast, capture_dwd_day_ahead_forecast, capture_dwd_same_day_forecast, capture_production_day_ahead_forecasts, capture_same_day_forecast
+from .forecast_model import PRODUCTION_BLEND_SOURCE, capture_day_ahead_forecast, capture_dwd_day_ahead_forecast, capture_dwd_same_day_forecast, capture_production_day_ahead_forecasts, capture_same_day_forecast
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = Path(__file__).resolve().parent / "static"
@@ -21,7 +21,7 @@ class HistoryHandler(SimpleHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         if parsed.path == "/api/comparisons":
-            return self.send_json(list_comparisons(db()))
+            return self.send_json(list_comparisons(db(), visible_sources={PRODUCTION_BLEND_SOURCE}))
         if parsed.path == "/api/forecast":
             run_id = int(parse_qs(parsed.query).get("id", ["0"])[0])
             detail = forecast_detail(db(), run_id)

@@ -12,14 +12,10 @@
         <div>
           <p class="eyebrow">Local SQLite database</p>
           <h1>SolarGen History</h1>
-          <p>Store the blended production forecast from Open-Meteo and DWD inputs, with source forecasts retained for audit.</p>
+          <p>Store and compare the blended production forecast, with source inputs retained only for audit.</p>
         </div>
         <div class="actions">
           <button id="captureProductionBtn" type="button">Capture production day-ahead</button>
-          <button id="captureBtn" type="button">Capture Open-Meteo input</button>
-          <button id="captureTodayBtn" type="button">Capture Open-Meteo same-day</button>
-          <button id="captureDwdBtn" type="button">Capture DWD input</button>
-          <button id="captureDwdTodayBtn" type="button">Capture DWD same-day</button>
         </div>
       </header>
 
@@ -50,12 +46,9 @@
                 <th>Issued</th>
                 <th>Target</th>
                 <th>Source</th>
-                <th>Source/input</th>
                 <th>Production</th>
                 <th>Actual</th>
-                <th>Input err</th>
                 <th>Production err</th>
-                <th>Input %</th>
                 <th>Production %</th>
                 <th>Hourly RMSE</th>
                 <th>Hourly points</th>

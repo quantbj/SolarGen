@@ -25,11 +25,7 @@ const state = {
 };
 
 const els = {
-  captureBtn: document.getElementById('captureBtn'),
   captureProductionBtn: document.getElementById('captureProductionBtn'),
-  captureTodayBtn: document.getElementById('captureTodayBtn'),
-  captureDwdBtn: document.getElementById('captureDwdBtn'),
-  captureDwdTodayBtn: document.getElementById('captureDwdTodayBtn'),
   actualForm: document.getElementById('actualForm'),
   actualDate: document.getElementById('actualDate'),
   actualDateText: document.getElementById('actualDateText'),
@@ -50,10 +46,6 @@ init();
 
 async function init() {
   els.captureProductionBtn.addEventListener('click', () => captureForecast('/api/capture-production', 'Fetching OM and DWD inputs and saving production blend...', 'Saved production day-ahead forecast.'));
-  els.captureBtn.addEventListener('click', () => captureForecast('/api/capture', 'Fetching Open-Meteo and saving day-ahead forecast...', 'Saved Open-Meteo day-ahead forecast snapshot.'));
-  els.captureTodayBtn.addEventListener('click', () => captureForecast('/api/capture-today', 'Fetching Open-Meteo and saving same-day forecast...', 'Saved same-day forecast snapshot.'));
-  els.captureDwdBtn.addEventListener('click', () => captureForecast('/api/capture-dwd', 'Fetching DWD MOSMIX and saving day-ahead forecast...', 'Saved DWD day-ahead forecast snapshot.'));
-  els.captureDwdTodayBtn.addEventListener('click', () => captureForecast('/api/capture-dwd-today', 'Fetching DWD MOSMIX and saving same-day composite forecast...', 'Saved DWD same-day forecast snapshot.'));
   els.actualForm.addEventListener('submit', saveActuals);
   els.runSelect.addEventListener('change', () => selectRun(Number(els.runSelect.value)));
   els.actualDate.addEventListener('change', () => syncDateText(els.actualDate.value));
