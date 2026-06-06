@@ -3,6 +3,7 @@ import unittest
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from history_app.cli import recompute_production_forecasts
 from history_app.database import forecast_detail, hourly_error_metrics, init_db, list_comparisons, parse_hourly_values, parse_number, save_actual, save_forecast_run, simple_forecast_total
 from history_app.ecoflow_store import list_ecoflow_ticks, save_ecoflow_tick
 from history_app.forecast_model import LOCATION, PRODUCTION_BLEND_SOURCE, blend_production_day_ahead, build_dwd_mosmix_url, build_forecast_url, capture_day_ahead_forecast, capture_dwd_day_ahead_forecast, capture_dwd_same_day_forecast, capture_production_day_ahead_forecasts, capture_same_day_forecast, compose_dwd_same_day_forecast, dwd_mosmix_xml_to_open_meteo
@@ -78,10 +79,32 @@ class HistoryAppTest(unittest.TestCase):
         self.assertEqual(production["source"], PRODUCTION_BLEND_SOURCE)
         self.assertEqual(production["target_date"], "2026-05-04")
         self.assertEqual(len(production["hours"]), 24)
+        self.assertTrue(all(hour["forecast_kwh"] >= 0 for hour in production["hours"]))
         self.assertEqual(production["simple_forecast_total_kwh"], production["forecast_total_kwh"])
         self.assertGreater(production["forecast_total_kwh"], min(om_snapshot["forecast_total_kwh"], dwd_snapshot["simple_forecast_total_kwh"]))
         self.assertLess(production["forecast_total_kwh"], max(om_snapshot["forecast_total_kwh"], dwd_snapshot["simple_forecast_total_kwh"]) + 1)
-        self.assertEqual(production["weather"]["production_model"], "OM/DWD two-input blend")
+        self.assertEqual(production["weather"]["production_model"], "OM current plus DWD stable equal blend")
+
+    def test_recompute_production_forecasts_rebuilds_from_stored_inputs(self):
+        con = sqlite3.connect(":memory:")
+        con.row_factory = sqlite3.Row
+        con.execute("PRAGMA foreign_keys = ON")
+        init_db(con)
+        forecast = sample_forecast("2026-05-03", "2026-05-04")
+        om_snapshot, dwd_snapshot, _ = capture_production_day_ahead_forecasts(
+            now=datetime(2026, 5, 3, 8, tzinfo=ZoneInfo(LOCATION["timezone"])),
+            open_meteo_forecast=forecast,
+            dwd_forecast=forecast,
+        )
+        save_forecast_run(con, om_snapshot)
+        save_forecast_run(con, dwd_snapshot)
+
+        result = recompute_production_forecasts(con)
+        [production] = [row for row in list_comparisons(con) if row["source"] == PRODUCTION_BLEND_SOURCE]
+        expected = round(0.5 * om_snapshot["forecast_total_kwh"] + 0.5 * dwd_snapshot["simple_forecast_total_kwh"], 3)
+
+        self.assertEqual(result["recomputed"], 1)
+        self.assertEqual(production["forecast_total_kwh"], expected)
 
     def test_sqlite_stores_forecast_actuals_and_comparison_metrics(self):
         con = sqlite3.connect(":memory:")
