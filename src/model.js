@@ -4,7 +4,7 @@ import { clamp, dayOfYear, formatDay, toRad, valueAt } from "./utils.js";
 let calibrationScaleCache = null;
 
 /**
- * Convert a raw Open-Meteo forecast payload into SolarGen day models.
+ * Convert a raw Open-Meteo-shaped forecast payload into SolarGen day models.
  *
  * Input:
  * - `forecast.daily`: one row per local day with summary weather fields.
@@ -30,7 +30,7 @@ export function simulateForecast(forecast, settings = DEFAULTS) {
     const hours = (grouped.get(date) || []).map(hour => {
       const irradiance = hour.irradiance ?? fallbackIrradiance(date, hour.hour, settings.tilt, hour.cloudCover);
 
-      // The weather response uses both hourly and daily Open-Meteo fields. Low-irradiance
+      // The weather response uses both hourly and daily meteo fields. Low-irradiance
       // overcast hours are lifted, while bright high-cloud hours are damped on wet,
       // low-sun, high-cloud days where the raw tilted irradiance has over-forecast.
       const correctedIrradiance = cloudAdjustedIrradiance(
@@ -104,7 +104,7 @@ export function simulateForecast(forecast, settings = DEFAULTS) {
 }
 
 /**
- * Group Open-Meteo hourly arrays by local date and normalize field names.
+ * Group provider hourly arrays by local date and normalize field names.
  * Returns a Map keyed by `yyyy-mm-dd`, each value containing 24-ish hourly objects.
  */
 export function groupHourlyForecast(hourly) {
@@ -287,7 +287,7 @@ export function pvTemperatureFactor(irradiance, ambientTemperature) {
 }
 
 /**
- * Empirical correction for high-cloud hours where Open-Meteo tilted irradiance under-forecast
+ * Empirical correction for high-cloud hours where tilted irradiance under-forecast
  * the actual generation. Clear hours return the original irradiance unchanged.
  */
 export function cloudAdjustedIrradiance(irradiance, cloudCover, precipitation = 0, dailyWeather = {}) {

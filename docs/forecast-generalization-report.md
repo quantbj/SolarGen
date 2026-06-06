@@ -1,144 +1,120 @@
-# SolarGen Forecast Generalization Report
+# SolarGen Production Model Selection Report
 
-Date: 2026-05-14  
-Scope: out-of-sample testing of the SolarGen day-ahead generation model using the local SQLite history database.
+Date: 2026-06-06  
+Scope: current production forecast model selection using stored paired Open-Meteo and DWD day-ahead forecast history.
 
 ## Executive Summary
 
-The current production forecast model is too complex for the amount of measured data available. On the 8 historical day-ahead forecasts that have matching actuals, the stored production-model forecasts have a leave-one-out mean absolute error of 9.83 kWh and a MAPE of 34.0%.
+SolarGen now uses a production forecast that combines two weather-source/model paths:
 
-The best simple candidate is a two-variable daily regression:
-
-\[
-\widehat{G}_{day} =
-\max(0,\ 18.35 + 2.35H_{sun} - 1.92R_{daylight})
-\]
+```text
+production = 0.5 * OM_current_physical
+           + 0.5 * DWD_stable
+```
 
 where:
 
-- \(H_{sun}\) is Open-Meteo sunshine duration in hours.
-- \(R_{daylight}\) is precipitation summed only over hours with positive tilted irradiance.
+```text
+DWD_stable = 0.25 * DWD_current_physical
+           + 0.75 * DWD_sunshine_rain
+           + 4.039
+```
 
-This model is intentionally simple. It uses two weather variables and no fitted rooftop shape parameters. In leave-one-out testing it achieved 3.18 kWh MAE and 10.3% MAPE. In chronological walk-forward testing over 2026-05-10 through 2026-05-13 it achieved 2.42 kWh MAE and 7.9% MAPE.
-
-Recommendation: do not add more machine-learning complexity yet. Use the two-variable daily model as the proposed daily total forecast, then distribute that daily total over the existing hourly curve shape. Keep the model under active validation as more actuals arrive.
+This model was selected because it is simple, stable, and performs as well as or better than fitted alternatives in out-of-sample checks. Richer meteo regressions and fitted source weights improved in-sample errors but did not generalize on the available data.
 
 ## Data Used
 
-The usable out-of-sample set is the subset of forecast runs that have actual generation for the target date:
+The paired production-data set contains 23 day-ahead target dates with both source forecasts and actuals:
 
-| Target date | Actual kWh | Stored model forecast kWh | Rain mm | Cloud % | Sunshine h |
-|---|---:|---:|---:|---:|---:|
-| 2026-05-04 | 36.41 | 19.18 | 0.1 | 94 | 6.25 |
-| 2026-05-05 | 14.47 | 7.42 | 4.5 | 100 | 0.00 |
-| 2026-05-08 | 55.15 | 52.34 | 0.0 | 12 | 14.99 |
-| 2026-05-09 | 33.41 | 47.11 | 0.0 | 59 | 7.95 |
-| 2026-05-10 | 44.06 | 54.65 | 0.0 | 82 | 11.66 |
-| 2026-05-11 | 27.40 | 39.62 | 0.2 | 95 | 4.56 |
-| 2026-05-12 | 24.43 | 39.34 | 5.2 | 92 | 7.11 |
-| 2026-05-13 | 38.31 | 38.43 | 3.0 | 91 | 8.93 |
+- first paired actual date: `2026-05-14`
+- latest paired actual date: `2026-06-05`
+- source inputs retained in SQLite: Open-Meteo day-ahead and DWD MOSMIX day-ahead
+- displayed forecast: Production blend day-ahead
 
-This is a very small data set. It is enough to detect obvious overfitting, but not enough to justify a high-dimensional machine-learning model.
-
-## Validation Design
-
-Two checks were used:
-
-1. Leave-one-out cross-validation: train on 7 days and test on the held-out day, repeated for all 8 days.
-2. Chronological walk-forward validation: train on the first 4 measured forecast/actual pairs, then test the next day; repeat while expanding the training window.
-
-The chronological test is stricter because it better resembles real future forecasting.
+The public browser app uses DWD ICON through Open-Meteo because that is a direct JSON API available to GitHub Pages. The local history app uses DWD MOSMIX because that is the retained historical DWD source. Both use the same DWD stable transfer and equal blend structure.
 
 ## Candidate Models Tested
 
-The tested candidates included:
+The review tested both provider mixing and meteo-to-PV transfer changes:
 
-- Existing stored production-model forecast.
-- Mean actual generation from the training set.
-- Scale-only correction of the stored forecast.
-- Simple rain-damped stored forecast.
-- Ordinary least squares regressions using 1 to 3 features.
-- Ridge regressions using current forecast, rain, sunshine, cloud, irradiance, and curtailment features.
-- k-nearest-neighbor weather analog models as a lightweight machine-learning alternative.
+- previous production blend with fitted source weights;
+- OM physical model only;
+- DWD stable model only;
+- equal average of OM physical and DWD stable;
+- fitted static source weights;
+- rain-regime source weights;
+- source-specific transfer recalibration before blending;
+- direct ridge regression using source forecasts and meteo summaries.
 
-Tree models, neural networks, and richer ML models were rejected as inappropriate for 8 observations. They would have far more degrees of freedom than the data can support.
+## Results
 
-## Main Results
+### Fixed And Fitted Source Models
 
-### Leave-One-Out Cross-Validation
+| Candidate | In-sample MAE | Leave-one-out MAE | Rolling MAE |
+|---|---:|---:|---:|
+| Previous production blend | `2.812` | `2.812` | `3.092` |
+| OM current only | `3.323` | `3.323` | `3.790` |
+| DWD stable only | `3.371` | `3.371` | `2.855` |
+| Equal OM current + DWD stable | `2.802` | `2.802` | `2.942` |
+| Fitted static source weights | `2.821` | `3.090` | `3.138` |
+| Rain-regime blend | `2.737` | `3.188` | `3.105` |
+| Weather-corrected average | `2.710` | `3.457` | `3.439` |
+| Ridge linear + rain | `2.745` | `3.116` | `3.140` |
 
-| Model | Features | MAE kWh | RMSE kWh | MAPE | Max abs error kWh |
-|---|---|---:|---:|---:|---:|
-| Current stored model | existing forecast | 9.83 | 11.32 | 34.0% | 17.23 |
-| Training mean only | none | 10.60 | 13.34 | 40.1% | 23.94 |
-| Scale current forecast | current forecast | 9.79 | 10.88 | 32.3% | 20.43 |
-| OLS forecast + rain | current forecast, rain | 9.08 | 10.23 | 28.1% | 15.41 |
-| Ridge forecast + rain + sun | current forecast, rain, sunshine | 7.04 | 7.73 | 24.1% | 14.38 |
-| Sun-only regression | sunshine | 3.25 | 4.45 | 10.8% | 9.47 |
-| Sunshine + daylight rain | sunshine, daylight rain | 3.18 | 3.47 | 10.3% | 5.66 |
-| OLS forecast + sun + daylight rain | forecast, sunshine, daylight rain | 1.34 | 1.69 | 5.2% | 3.18 |
-| OLS theoretical + rain + sun | theoretical output, rain, sunshine | 1.59 | 1.79 | 5.3% | 3.07 |
-| Best kNN weather analog | sunshine, daylight rain | 6.11 | 8.34 | 24.0% | 15.09 |
+The fitted models are worse out of sample despite better in-sample scores. The equal blend is the best stable choice.
 
-The 3-feature OLS models score best numerically, but they are not the best proposal because their fitted coefficients are not physically stable. For example, some fitted versions assign a negative coefficient to the current forecast or theoretical output after controlling for sunshine. That is a strong overfitting warning.
+### Meteo-To-PV Transfer Candidates
 
-### Chronological Walk-Forward Validation
+| Candidate | Leave-one-out MAE | Rolling MAE | Interpretation |
+|---|---:|---:|---|
+| Equal OM current + DWD stable | `2.802` | `2.942` | Best simple generalizer |
+| Equal current physical models | `4.302` | `4.678` | DWD physical conversion alone is poor |
+| Equal raw sunshine/rain models | `5.157` | `6.113` | Too crude |
+| Source transfer then equal blend | `3.031` | `3.057` | Better in-sample, worse OOS |
+| Source transfer then weighted blend | `3.197` | `3.199` | Overfits |
+| Direct meteo ridge | `3.408` | `3.377` | Overfits current sample |
 
-The walk-forward window tests 2026-05-10 through 2026-05-13 after training only on earlier days.
+This shows that the current structure is not merely an OM/DWD average. The important model choice is to keep OM as the current physical model while transforming DWD through the stable DWD transfer model before blending.
 
-| Model | MAE kWh | RMSE kWh | MAPE | Max abs error kWh |
-|---|---:|---:|---:|---:|
-| Current stored model | 9.46 | 11.00 | 32.5% | 14.91 |
-| Mean actual only | 8.48 | 8.78 | 27.7% | 10.72 |
-| Scale current forecast | 8.59 | 8.76 | 27.7% | 10.25 |
-| OLS forecast + rain | 6.62 | 8.01 | 21.2% | 13.09 |
-| Ridge forecast + rain + sun | 5.41 | 5.76 | 18.0% | 8.41 |
-| Sun-only regression | 3.23 | 4.93 | 11.8% | 9.52 |
-| Sunshine + daylight rain | 2.42 | 2.60 | 7.9% | 3.95 |
-| OLS forecast + sun + daylight rain | 2.10 | 2.37 | 7.4% | 3.24 |
-| OLS theoretical + rain + sun | 2.00 | 2.37 | 5.6% | 3.81 |
+## Current Stored-History Accuracy
 
-The two-variable sunshine-plus-daylight-rain model is nearly as good as the best 3-feature regressions and is substantially more defensible.
+After recomputing production rows under the equal blend:
 
-## Interpretation
+| Metric | Value |
+|---|---:|
+| Paired actual days | `23` |
+| MAE | `2.802 kWh` |
+| RMSE | `3.578 kWh` |
+| Bias | `0.014 kWh` |
+| MAPE | `7.92%` |
 
-The current model has many hand-tuned nonlinear parameters. It was able to match selected historical days in-sample, but its stored day-ahead forecasts do not generalize well on the available out-of-sample data.
+The forecast for `2026-06-07`, captured on `2026-06-06`, is `28.297 kWh`.
 
-The strongest generalizable signal is Open-Meteo sunshine duration. This is not surprising: it aggregates cloud timing and opacity into a daily scalar that is more stable than trying to infer production from many individual hourly cloud and irradiance interactions.
+## Literature Context
 
-Daylight rain adds useful information. It especially reduces the 2026-05-12 over-forecast, where the sun-only model predicted 33.95 kWh versus 24.43 kWh actual. The sunshine-plus-daylight-rain model reduced that walk-forward prediction to 28.38 kWh.
+Day-ahead PV forecast accuracy varies widely depending on normalization, weather regime, aggregation, and the amount of local training data.
 
-The current stored forecast, theoretical output, cloud cover, and kNN weather analog models did not add robust value on this data set. They may become useful later, but right now they increase complexity faster than they reduce out-of-sample error.
+The current SolarGen production model has daily MAPE around `8%` on the paired local sample. That is better than many simple NWP-to-PV baselines reported under cloudy conditions, but weaker than mature ML or commercial systems trained on longer histories. This is expected given the small local sample and the site-specific shading behavior.
 
-## Proposed Model
+## Operational Decision
 
-Use a two-stage forecast:
+Use the equal production blend as the production model:
 
-1. Predict daily total generation with:
+```text
+production = 0.5 * OM_current_physical
+           + 0.5 * DWD_stable
+```
 
-   \[
-   \widehat{G}_{day} =
-   \max(0,\ 18.35 + 2.35H_{sun} - 1.92R_{daylight})
-   \]
+Do not add higher-dimensional machine learning until there is materially more paired history across seasons. Future model changes should be accepted only if they improve leave-one-out and chronological rolling tests, not just in-sample fit.
 
-2. Allocate the daily total across hours using the existing hourly shape machinery, normalized so that:
+## Maintenance
 
-   \[
-   \sum_{h=0}^{23}\widehat{G}_h = \widehat{G}_{day}
-   \]
+After any production-model change:
 
-This keeps the useful part of the existing app, namely an hourly profile for charts and battery simulation, but removes the fragile daily-total calibration from the complex nonlinear model.
+```sh
+python3 -m history_app.cli recompute-production
+npm run check
+npm test
+```
 
-## Operational Recommendation
-
-Do not replace the production model immediately without preserving a side-by-side comparison. The next implementation should:
-
-- Add this two-variable model as a candidate model, not as a silent overwrite.
-- Show both current-model and simple-model daily totals in the history app for future comparisons.
-- Keep using actuals from 2026-05-14 onward as a locked forward test set.
-- Refit coefficients only when at least 20 measured day-ahead pairs are available, unless there is a clear data quality issue.
-- Track MAE, MAPE, bias, and max absolute error separately for all future days.
-
-## Bottom Line
-
-The evidence supports simplifying the model. The best proposal is not a richer ML model; it is a constrained daily regression using sunshine duration and daylight rain, with the existing hourly curve used only for intraday allocation.
+Update `docs/methodology.md`, `docs/model-documentation.tex`, and the visible app copy in the same commit.

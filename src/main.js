@@ -1,11 +1,13 @@
 import { DEFAULTS, LOCATION } from "./config.js";
 import { renderBatteryChart, renderDailyChart, renderGenerationWeatherChart, renderHourlyChart } from "./charts.js";
 import { simulateForecast } from "./model.js";
-import { buildFallbackForecast, fetchOpenMeteoForecast } from "./weather.js";
+import { blendProductionForecastDays } from "./productionBlend.js";
+import { buildFallbackForecast, fetchDwdIconForecast, fetchOpenMeteoForecast } from "./weather.js";
 import { debounce, formatMoney, formatNumber } from "./utils.js";
 
 const state = {
   forecast: null,
+  dwdForecast: null,
   days: [],
   selectedIndex: 0,
   settings: { ...DEFAULTS },
@@ -95,28 +97,34 @@ function wireControls() {
 }
 
 /**
- * Fetch live weather, fall back to deterministic local weather when external data is unavailable,
- * then run the shared PV/storage/value simulation.
+ * Fetch live Open-Meteo and DWD weather, fall back to deterministic local weather when
+ * external data is unavailable, then run the production blend simulation.
  */
 async function fetchForecast() {
   setStatus("Loading forecast", false);
-  setLoading(true, "Preparing Open-Meteo request for OHZ: hourly irradiance, cloud cover, rain, temperature, and weather codes.");
+  setLoading(true, "Preparing Open-Meteo and DWD requests for OHZ: hourly irradiance, cloud cover, rain, temperature, and weather codes.");
   await waitForPaint();
 
   try {
-    setLoading(true, "Fetching 14-day hourly weather forecast from Open-Meteo.");
+    setLoading(true, "Fetching 14-day hourly forecasts from Open-Meteo and DWD ICON.");
     await waitForPaint();
-    state.forecast = await fetchOpenMeteoForecast(state.settings);
+    const [openMeteoForecast, dwdForecast] = await Promise.all([
+      fetchOpenMeteoForecast(state.settings),
+      fetchDwdIconForecast(state.settings)
+    ]);
+    state.forecast = openMeteoForecast;
+    state.dwdForecast = dwdForecast;
 
-    setLoading(true, "Forecast received. Simulating rooftop PV, 6 kW curtailment, 10 kWh battery flow, and EUR values.");
+    setLoading(true, "Forecasts received. Simulating the equal production blend, 6 kW curtailment, 10 kWh battery flow, and EUR values.");
     await waitForPaint();
-    els.updatedAt.textContent = `Forecast for ${LOCATION.name}`;
+    els.updatedAt.textContent = `Equal Open-Meteo/DWD blend for ${LOCATION.name}`;
     setStatus("Live forecast", false);
   } catch (error) {
     console.error(error);
-    setLoading(true, "Open-Meteo did not respond. Building the local fallback clear-sky forecast.");
+    setLoading(true, "A live forecast source did not respond. Building the local fallback clear-sky forecast.");
     await waitForPaint();
     state.forecast = buildFallbackForecast(new Date(), state.settings);
+    state.dwdForecast = null;
     els.updatedAt.textContent = "Using fallback clear-sky model";
     setStatus("Forecast offline", true);
   }
@@ -149,7 +157,13 @@ function waitForPaint() {
 
 function computeAndRender() {
   if (!state.forecast) return;
-  state.days = simulateForecast(state.forecast, state.settings);
+  const openMeteoDays = simulateForecast(state.forecast, state.settings);
+  if (state.dwdForecast) {
+    const dwdDays = simulateForecast(state.dwdForecast, state.settings);
+    state.days = blendProductionForecastDays(openMeteoDays, dwdDays, state.settings);
+  } else {
+    state.days = openMeteoDays;
+  }
   state.selectedIndex = Math.min(state.selectedIndex, Math.max(0, state.days.length - 1));
   render();
 }

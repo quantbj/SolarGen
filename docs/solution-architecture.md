@@ -1,193 +1,144 @@
 # Solution Architecture
 
-## Overview
+SolarGen has two related but separate applications.
 
-The app is a dependency-free static web application. It runs fully in the browser and uses Open-Meteo as the live forecast provider.
+1. The public/static forecast app runs fully in the browser and displays the equal Open-Meteo/DWD production blend.
+2. The local history app runs on this computer, stores SQLite history, captures Open-Meteo and DWD inputs, and exposes the same production-transfer model for forecast-vs-actual tracking.
+
+## Static Browser App
 
 ```mermaid
 flowchart LR
   A["Open-Meteo forecast API"] --> B["src/weather.js"]
+  DWD["Open-Meteo DWD ICON API"] --> B
   B --> C["src/model.js"]
+  C --> P["src/productionBlend.js"]
   D["User controls"] --> C
-  C --> E["src/main.js"]
+  D --> P
+  P --> E["src/main.js"]
   E --> F["Summary tiles"]
   E --> G["Canvas charts"]
   E --> H["Forecast table"]
-  A --> I["history_app.forecast_model"]
-  I --> M["src/historyForecastCli.mjs"]
-  M --> C
-  I --> J["SQLite: data/solargen_history.sqlite3"]
-  K["Manual/API actuals"] --> J
-  J --> L["Local history app"]
 ```
 
-## Modules
+The static app is dependency-free at runtime. It can be served from GitHub Pages and fetches both source forecasts directly in the visitor browser:
+
+- Open-Meteo generic forecast endpoint;
+- Open-Meteo DWD ICON endpoint.
+
+### Browser Modules
 
 `src/config.js`
 
-Holds system defaults, location, calibration values, forecast length, and API endpoint.
+Holds defaults, location, calibration constants, forecast length, and API endpoint.
 
 `src/weather.js`
 
-Builds the Open-Meteo request URL, fetches live forecasts, and creates a deterministic fallback forecast when live data is unavailable.
+Builds the Open-Meteo request URL, fetches live forecasts, and creates a deterministic fallback forecast if live fetch fails.
 
 `src/model.js`
 
-Pure forecasting and accounting logic. This module has no DOM dependency and is covered by tests.
+Canonical source physical PV model. It groups hourly forecast data, adjusts irradiance for cloud/rain/temperature, applies the site rooftop profile, models battery/load/export flows, and returns daily/hourly totals. It is run once for Open-Meteo and once for DWD ICON in the static browser app.
 
-Responsibilities:
+`src/productionBlend.js`
 
-- group hourly forecast records by date
-- estimate PV output from tilted irradiance and temperature
-- anchor clear-sky output against the measured full-sun day of 50.23 kWh on May 1, 2026
-- recalibrate weather response against measured forecast history from May 4-12, 2026
-- model direct self-consumption, battery charge/discharge, grid import, grid export, and curtailment
-- compute savings, feed-in earnings, and total value
-
-This is the canonical PV model for both the browser forecast and local history capture.
-
-`src/historyForecastCli.mjs`
-
-Command-line bridge used by the Python history app. It converts day-ahead Open-Meteo payloads into the same forecast snapshot shape the SQLite database stores, while reusing `src/model.js`.
-
-`src/chartCore.js`
-
-Shared canvas primitives for the forecast app and the local history app: high-DPI canvas setup, grid/axis drawing, legends, line/bar drawing, hit testing, and tooltips. This module has no SolarGen business rules and is unit-tested directly.
-
-`src/charts.js`
-
-Forecast-specific canvas rendering for daily and hourly charts. It receives already-computed day models, delegates generic drawing to `src/chartCore.js`, and does not own business logic.
-
-Rendered charts:
-
-- 14 day production/value bars
-- selected-day generation and weather curve
-- selected-day energy-flow chart for PV, load, and export
-- selected-day battery charge curve
+Browser-side production blend. It applies the DWD stable transfer and combines Open-Meteo current plus DWD stable at equal weights, then recomputes battery/load/export accounting for the blended hourly curve.
 
 `src/main.js`
 
-Browser orchestration: reads controls, fetches forecasts, calls the model, and renders DOM state.
+Browser orchestration: reads controls, fetches forecasts, calls `src/model.js`, and renders DOM state.
 
-`src/utils.js`
+`src/chartCore.js`, `src/charts.js`
 
-Formatting and small math helpers shared by browser and test code.
+Canvas rendering primitives and static-app chart renderers.
+
+## Local History And Production App
+
+```mermaid
+flowchart LR
+  A["Open-Meteo forecast API"] --> B["history_app.forecast_model"]
+  C["DWD MOSMIX"] --> B
+  B --> D["src/historyForecastCli.mjs"]
+  D --> E["src/model.js"]
+  B --> F["Production equal blend"]
+  F --> G["SQLite history DB"]
+  H["EcoFlow/manual actuals"] --> G
+  G --> I["history_app.server"]
+  I --> J["Local history UI"]
+```
+
+The local app is intentionally not part of the public static deployment. It runs at `http://127.0.0.1:4183` and stores private operating history in `data/solargen_history.sqlite3`, which is ignored by git.
+
+### History Modules
+
+`history_app.forecast_model`
+
+Fetches Open-Meteo and DWD MOSMIX forecasts, converts each source to the local snapshot format, applies the DWD stable transfer model, and creates the production equal blend. The browser app uses DWD ICON instead of MOSMIX because the static app needs a direct JSON endpoint; the transfer formula and final blend are the same.
+
+Production model:
+
+```text
+production = 0.5 * OM_current_physical
+           + 0.5 * DWD_stable
+```
+
+with:
+
+```text
+DWD_stable = 0.25 * DWD_current_physical
+           + 0.75 * DWD_sunshine_rain
+           + 4.039
+```
+
+`src/historyForecastCli.mjs`
+
+Node bridge used by Python to reuse the Open-Meteo physical model in `src/model.js`.
+
+`history_app.database`
+
+SQLite schema creation, forecast run storage, actual storage, comparison metrics, and detail views.
+
+`history_app.cli`
+
+Command-line capture, actuals entry, and deterministic production-history recomputation.
+
+Important commands:
+
+```sh
+python3 -m history_app.cli capture-production
+python3 -m history_app.cli recompute-production
+python3 -m history_app.cli actual 2026-06-05 --total 30.49
+```
+
+`history_app.server`
+
+Local HTTP API and static UI for history comparison.
+
+`history_app/static`
+
+History UI. It shows only the production blend in comparisons. OM and DWD source rows remain in SQLite for audit.
 
 ## Data Flow
 
-1. The app starts with defaults from `src/config.js`.
-2. `src/main.js` calls `fetchOpenMeteoForecast`.
-3. `src/weather.js` requests 14 days of hourly forecast data, including `global_tilted_irradiance`, `cloud_cover`, `precipitation`, `temperature_2m`, and weather codes.
-4. `src/model.js` simulates energy flow hour by hour.
-5. `src/main.js` renders summary values, selected-day detail cards, charts, and the forecast table.
+1. Daily automation or manual capture runs `capture-production`.
+2. The capture saves three forecast rows: Open-Meteo input, DWD input, and Production blend.
+3. The history UI filters comparison output to `Production blend day-ahead`.
+4. Actuals are stored from manual entry or EcoFlow-derived hourly generation.
+5. Forecast-vs-actual metrics are computed from SQLite.
 
-## PV Model
+## Calibration Summary
 
-The preferred forecast input is Open-Meteo `global_tilted_irradiance`, requested with:
+Source physical model:
 
-- `tilt`: user-configured roof tilt
-- `azimuth=0`: south-facing in Open-Meteo's convention
+- clear-sky anchor: `2026-05-01`, `50.23 kWh`;
+- Open-Meteo calibration note in the app: forecast-vs-actual history through `2026-05-29`.
 
-Hourly PV output is estimated as:
+Production model:
 
-```text
-kWh = cloudAdjustedIrradiance W/m2 / 1000 * capacity kWp * calibrationScale * temperatureFactor
-```
+- DWD stable transfer selected from DWD day-ahead history through `2026-05-29`;
+- production equal blend selected from paired OM/DWD day-ahead history through `2026-06-05`;
+- stored-history performance on 23 paired actual days: `2.802 kWh` MAE, `3.578 kWh` RMSE, `7.92%` MAPE.
 
-The calibration scale is derived from the local clear-sky model so the default 10 kWp system aligns with the measured 50.23 kWh full-sun day on May 1, 2026. The weather response is separately recalibrated against measured forecast history from May 4-12, 2026.
+## Deployment Boundary
 
-The model includes an empirical weather response fitted from the stored actual-vs-forecast comparisons. It uses hourly tilted irradiance, cloud cover, precipitation, and temperature plus daily rain, mean cloud cover, and sunshine duration. Low-irradiance overcast hours can be lifted, while bright high-cloud hours are damped on wet, low-sun, high-cloud days where raw tilted irradiance has historically over-forecast.
-
-The model then applies a screenshot-calibrated rooftop profile. On clear hours this profile reflects the observed behavior from May 1, 2026:
-
-- generation starts around 06:00
-- output remains limited before late morning
-- the main production window opens from late morning through late afternoon
-- output drops through the late afternoon and evening
-
-For cloudy hours, the model blends toward a smoother diffuse-light profile. This uses cloud cover as the blend weight and daily weather damping to avoid the latest observed failure mode: bright hourly irradiance on a wet, low-sun overcast day.
-
-This keeps the forecast tied to the actual installation behavior instead of assuming one unobstructed smooth bell curve or one fixed step profile for every weather condition.
-
-## Battery and Export Model
-
-For each hour:
-
-1. PV first covers same-hour household load.
-2. Battery discharges to cover remaining load.
-3. Remaining PV charges the battery at 94% charge efficiency.
-4. Rooftop PV is clipped at the feed-in cap for the grid-facing delivered curve.
-5. Any rooftop PV above the cap is counted as curtailed.
-6. Delivered PV then covers home load, charges the battery, and exports remaining surplus to the grid.
-
-The model stores both `pv` and `deliveredPv`:
-
-- `theoreticalPv`: weather-adjusted irradiance potential before the site profile.
-- `pv`: screenshot-calibrated rooftop generation before cap-related curtailment.
-- `deliveredPv`: grid-facing generation after the 6 kW cap, equal to `pv - curtailed`.
-
-The model is intentionally simple and transparent. It does not yet model inverter efficiency curves, asymmetric battery charge/discharge limits, dynamic tariffs, or measured household load imports.
-
-## Household Load Model
-
-The default load profile is calibrated to roughly `10 kWh/day`:
-
-```text
-24h * base load
-+ 10h * daytime extra
-+ 2h * 45% morning daytime ramp
-+ 5h * evening extra
-```
-
-With defaults, this is:
-
-```text
-24 * 0.20 + 10 * 0.20 + 2 * 0.45 * 0.20 + 5 * 0.60 = 9.98 kWh/day
-```
-
-## Revenue Model
-
-Savings:
-
-```text
-selfConsumed kWh * avoided import price
-```
-
-Feed-in earnings:
-
-```text
-exported kWh * feed-in tariff
-```
-
-Total value:
-
-```text
-savings + feed-in earnings
-```
-
-## External Dependencies
-
-Runtime dependency:
-
-- Open-Meteo forecast API
-
-Development dependency:
-
-- Node.js for tests and syntax checks
-
-There are no npm package dependencies.
-
-
-## Local History Architecture
-
-The local history app is intentionally separate from the published static forecast page. It runs only on this computer and stores data in SQLite at `data/solargen_history.sqlite3`.
-
-Modules:
-
-- `history_app.forecast_model`: fetches Open-Meteo day-ahead data and applies the same PV conversion assumptions used by the browser app.
-- `history_app.database`: owns schema creation, forecast snapshot storage, actual generation storage, and comparison metrics.
-- `history_app.cli`: command-line capture and actuals entry.
-- `history_app.server`: local-only HTTP app at `127.0.0.1:4183`.
-- `history_app/static`: browser UI for capture, manual actual entry, comparison table, and hourly profile chart.
-
-The split keeps private operating history off the public GitHub Pages deployment while preserving a clear future path for API actual ingestion. An API importer should write to `actual_days` and `actual_hours`; comparison code then works without changes.
+GitHub Pages serves only the static browser app and documentation. It does not serve the local SQLite database, the history app, or EcoFlow credentials.

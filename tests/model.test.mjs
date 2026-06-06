@@ -10,7 +10,8 @@ import {
   householdLoad,
   simulateForecast
 } from "../src/model.js";
-import { buildFallbackForecast, buildForecastUrl, fetchOpenMeteoForecast } from "../src/weather.js";
+import { blendProductionForecastDays, dwdStableForecastTotal } from "../src/productionBlend.js";
+import { buildDwdIconForecastUrl, buildFallbackForecast, buildForecastUrl, fetchOpenMeteoForecast } from "../src/weather.js";
 import { buildHistoryForecastUrl, captureDayAheadForecast, captureForecastSnapshot, simpleDailyForecastTotal } from "../src/historyForecast.js";
 import { debounce, formatDay, formatMoney, formatNumber, valueAt } from "../src/utils.js";
 
@@ -254,6 +255,37 @@ test("Open-Meteo URL requests tilted solar and weather forecast inputs", () => {
   assert.match(url.searchParams.get("hourly"), /precipitation/);
 });
 
+test("DWD ICON URL requests the same tilted solar and weather inputs", () => {
+  const url = buildDwdIconForecastUrl(DEFAULTS);
+
+  assert.equal(url.origin, "https://api.open-meteo.com");
+  assert.equal(url.pathname, "/v1/dwd-icon");
+  assert.equal(url.searchParams.get("latitude"), "53.226");
+  assert.equal(url.searchParams.get("azimuth"), "0");
+  assert.equal(url.searchParams.get("tilt"), "35");
+  assert.match(url.searchParams.get("hourly"), /global_tilted_irradiance/);
+  assert.match(url.searchParams.get("daily"), /sunshine_duration/);
+});
+
+test("production blend combines Open-Meteo current and DWD stable transfer", () => {
+  const omDay = simulateForecast(oneDayForecast({
+    irradianceByHour: hour => (hour >= 10 && hour <= 15 ? 700 : 0),
+    date: "2026-06-01"
+  }), noLoadSettings())[0];
+  const dwdDay = simulateForecast(oneDayForecast({
+    irradianceByHour: hour => (hour >= 10 && hour <= 15 ? 500 : 0),
+    date: "2026-06-01",
+    daily: { sunshine_duration: 8 * 3600 }
+  }), noLoadSettings())[0];
+
+  const [production] = blendProductionForecastDays([omDay], [dwdDay], noLoadSettings());
+  const expectedTotal = 0.5 * omDay.pv + 0.5 * dwdStableForecastTotal(dwdDay);
+
+  assert.ok(Math.abs(production.pv - expectedTotal) < 0.000001);
+  assert.ok(production.hours.every(hour => hour.pv >= 0));
+  assert.equal(production.sourceModel, "Production equal blend");
+});
+
 test("history capture selects the day-ahead forecast and serializes hourly values", () => {
   const forecast = {
     hourly: {
@@ -364,7 +396,7 @@ test("Open-Meteo request times out instead of hanging indefinitely", async () =>
         reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
       });
     }), 1),
-    /Forecast request timed out/
+    /Open-Meteo request timed out/
   );
 });
 

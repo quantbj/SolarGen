@@ -1,153 +1,114 @@
 # SolarGen
 
-SolarGen is a static browser app for forecasting rooftop PV production, self-consumption savings, and German EEG feed-in revenue for a 10 kWp south-facing rooftop system in OHZ / Osterholz-Scharmbeck.
+SolarGen forecasts rooftop PV production, self-consumption savings, and German EEG feed-in revenue for a 10 kWp south-facing rooftop system in OHZ / Osterholz-Scharmbeck.
+
+The displayed forecast uses the current production model:
+
+```text
+production = 0.5 * Open-Meteo current physical model
+           + 0.5 * DWD stable model
+```
+
+with:
+
+```text
+DWD stable = 0.25 * DWD current physical model
+           + 0.75 * DWD sunshine/rain model
+           + 4.039 kWh
+```
 
 ## Project Structure
 
 ```text
 .
 ├── docs/
-│   ├── solution-architecture.md
-│   ├── deployment.md
-│   ├── forecast-history.md
-│   ├── methodology.md
-│   ├── testing.md
-│   └── user-guide.md
 ├── history_app/
-│   ├── database.py
-│   ├── forecast_model.py
-│   ├── cli.py
-│   ├── server.py
-│   └── static/
 ├── src/
-│   ├── chartCore.js
-│   ├── charts.js
-│   ├── config.js
-│   ├── historyForecast.js
-│   ├── historyForecastCli.mjs
-│   ├── main.js
-│   ├── model.js
-│   ├── utils.js
-│   └── weather.js
 ├── tests/
-│   ├── chart_core.test.mjs
-│   ├── chart_renderers.test.mjs
-│   ├── history_chart_height.test.mjs
-│   ├── model.test.mjs
-│   └── test_history_app.py
-├── .nojekyll
 ├── index.html
-├── netlify.toml
 ├── package.json
-├── render.yaml
 └── styles.css
 ```
 
+Important modules:
+
+- `src/model.js`: source physical PV model and battery/load/export accounting.
+- `src/productionBlend.js`: browser production blend.
+- `src/weather.js`: Open-Meteo and DWD ICON browser forecast fetches.
+- `history_app/forecast_model.py`: local history capture and production blend using retained OM/DWD source rows.
+- `history_app/database.py`: SQLite forecast and actual storage.
+
 ## Quick Start
 
-Serve the folder locally:
+Serve the static browser app locally:
 
 ```sh
 python3 -m http.server 4173
 ```
 
-Then open `http://localhost:4173`.
+Open:
 
-The app can also be opened directly from `index.html`, but serving it locally is preferred because the JavaScript uses ES modules.
+```text
+http://localhost:4173
+```
 
-## Documentation
-
-- [User guide](docs/user-guide.md)
-- [Solution architecture](docs/solution-architecture.md)
-- [Testing guide](docs/testing.md)
-- [Deployment guide](docs/deployment.md)
-- [Forecast history guide](docs/forecast-history.md)
-- [Forecast methodology](docs/methodology.md)
+The app can be opened directly from `index.html`, but serving it locally is preferred because the JavaScript uses ES modules and external forecast requests.
 
 ## Local Forecast History
 
-SolarGen includes a separate local history app that stores day-ahead forecasts and actual generation in SQLite on this computer. Start it with:
+Start the local history app:
 
 ```sh
 python3 -m history_app.server
 ```
 
-Then open `http://127.0.0.1:4183`. The database lives at `data/solargen_history.sqlite3` and is ignored by git. See [Forecast history guide](docs/forecast-history.md) and [Forecast methodology](docs/methodology.md).
+Open:
+
+```text
+http://127.0.0.1:4183
+```
+
+Capture the production forecast:
+
+```sh
+python3 -m history_app.cli capture-production
+```
+
+After model changes, rebuild stored production rows from retained source inputs:
+
+```sh
+python3 -m history_app.cli recompute-production
+```
+
+The database lives at `data/solargen_history.sqlite3` and is ignored by git.
+
+## Documentation
+
+- [User guide](docs/user-guide.md)
+- [Forecast methodology](docs/methodology.md)
+- [Model documentation](docs/model-documentation.pdf)
+- [Production model selection report](docs/forecast-generalization-report.md)
+- [Forecast history guide](docs/forecast-history.md)
+- [Solution architecture](docs/solution-architecture.md)
+- [Testing guide](docs/testing.md)
+- [Deployment guide](docs/deployment.md)
 
 ## Deployment
 
-The app is ready for free static hosting. Render is the recommended path because the project includes `render.yaml`; Netlify and GitHub Pages are also supported. See [Deployment guide](docs/deployment.md).
+The public app is deployed as a GitHub Pages static site from the `main` branch root. See [Deployment guide](docs/deployment.md).
 
 ## Development
 
 Run syntax checks:
 
 ```sh
-node --check src/config.js
-node --check src/utils.js
-node --check src/chartCore.js
-node --check src/model.js
-node --check src/weather.js
-node --check src/historyForecast.js
-node --check src/historyForecastCli.mjs
-node --check src/charts.js
-node --check src/main.js
+npm run check
 ```
 
 Run tests:
 
 ```sh
 npm test
-```
-
-Or run the suites directly:
-
-```sh
-node --test
-python3 -m unittest discover -s tests -p 'test_*.py'
-```
-
-`package.json` also includes `npm` scripts for environments where `npm` is available:
-
-```sh
-npm run check
-npm test
-npm run coverage
-npm start
-```
-
-## EcoFlow IoT
-
-Local EcoFlow credentials are read from `EcoflowIoT/access.txt` or from `ECOFLOW_ACCESS_KEY` and `ECOFLOW_SECRET_KEY`. The credentials file is ignored by git.
-
-Read current solar/battery state plus today's history:
-
-```sh
-npm run ecoflow
-```
-
-Persist current generation, battery percentage, household load, and grid power every 5 seconds via REST polling:
-
-```sh
-npm run ecoflow:poll
-```
-
-Useful polling options:
-
-```sh
-python3 scripts/ecoflow_api_poll_collect.py --sn DEVICE_SERIAL
-python3 scripts/ecoflow_api_poll_collect.py --interval 10
-python3 scripts/ecoflow_api_poll_collect.py --once
-```
-
-Useful options:
-
-```sh
-python3 scripts/ecoflow_iot.py --sn DEVICE_SERIAL
-python3 scripts/ecoflow_iot.py --json --raw
-python3 scripts/ecoflow_iot.py --date 2026-05-17 --timezone Europe/Berlin
-python3 scripts/ecoflow_iot.py --history-profile powerocean
-python3 scripts/ecoflow_iot.py --history-profile stream
 ```
 
 ## Key Defaults
@@ -157,9 +118,44 @@ python3 scripts/ecoflow_iot.py --history-profile stream
 - Roof tilt: `35 deg`
 - Battery: `10 kWh`
 - Feed-in cap: `6 kW`
-- Clear-sky anchor day: `50.23 kWh` on `2026-05-01`, treated as a full-sun day
-- Weather response calibration period: measured history from `2026-05-04` through `2026-05-12`
-- Rooftop profile: screenshot-calibrated limited output before the late-morning production window and through the late afternoon
+- Clear-sky anchor day: `50.23 kWh` on `2026-05-01`
+- Source physical-model calibration note: Open-Meteo forecast-vs-actual history through `2026-05-29`
+- Production model selection period: paired source history through `2026-06-05`
 - Daily household consumption: about `10 kWh/day` by default
 - Avoided import price: `0.30 EUR/kWh`
 - Feed-in tariff: `0.0778 EUR/kWh`
+
+## Runtime Dependencies
+
+Browser app:
+
+- Open-Meteo forecast API
+- Open-Meteo DWD ICON API
+
+Local history app:
+
+- Open-Meteo forecast API
+- DWD MOSMIX open-data feed
+- local SQLite database
+
+Development:
+
+- Node.js for JavaScript checks/tests
+- Python 3 for the local history app and tests
+- `pdflatex` only when regenerating PDF documentation
+
+## EcoFlow Actuals
+
+Local EcoFlow credentials are read from `EcoflowIoT/access.txt` or from `ECOFLOW_ACCESS_KEY` and `ECOFLOW_SECRET_KEY`. The credentials file is ignored by git.
+
+Poll once:
+
+```sh
+python3 scripts/ecoflow_api_poll_collect.py --once
+```
+
+Poll continuously:
+
+```sh
+npm run ecoflow:poll
+```

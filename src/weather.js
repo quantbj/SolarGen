@@ -1,12 +1,20 @@
-import { DEFAULTS, FORECAST_DAYS, LOCATION, OPEN_METEO_ENDPOINT } from "./config.js";
+import { DEFAULTS, DWD_ICON_ENDPOINT, FORECAST_DAYS, LOCATION, OPEN_METEO_ENDPOINT } from "./config.js";
 import { fallbackIrradiance } from "./model.js";
 
 /**
- * Build the Open-Meteo forecast URL for the configured location and roof tilt.
+ * Build the default Open-Meteo forecast URL for the configured location and roof tilt.
  * Output is a URL object so callers can inspect query parameters in tests.
  */
 export function buildForecastUrl(settings, forecastDays = FORECAST_DAYS) {
-  const url = new URL(OPEN_METEO_ENDPOINT);
+  return buildProviderForecastUrl(OPEN_METEO_ENDPOINT, settings, forecastDays);
+}
+
+export function buildDwdIconForecastUrl(settings, forecastDays = FORECAST_DAYS) {
+  return buildProviderForecastUrl(DWD_ICON_ENDPOINT, settings, forecastDays);
+}
+
+function buildProviderForecastUrl(endpoint, settings, forecastDays = FORECAST_DAYS) {
+  const url = new URL(endpoint);
   url.search = new URLSearchParams({
     latitude: LOCATION.latitude,
     longitude: LOCATION.longitude,
@@ -35,25 +43,33 @@ export function buildForecastUrl(settings, forecastDays = FORECAST_DAYS) {
 }
 
 /**
- * Fetch Open-Meteo data with a timeout.
- * Input `fetchFn` is injectable for tests; output is the raw Open-Meteo JSON payload.
+ * Fetch default Open-Meteo data with a timeout.
+ * Input `fetchFn` is injectable for tests; output is the raw JSON forecast payload.
  */
 export async function fetchOpenMeteoForecast(settings, fetchFn = fetch, timeoutMs = 12000) {
+  return fetchForecastFromUrl(buildForecastUrl(settings), fetchFn, timeoutMs, "Open-Meteo");
+}
+
+export async function fetchDwdIconForecast(settings, fetchFn = fetch, timeoutMs = 12000) {
+  return fetchForecastFromUrl(buildDwdIconForecastUrl(settings), fetchFn, timeoutMs, "DWD ICON");
+}
+
+async function fetchForecastFromUrl(url, fetchFn = fetch, timeoutMs = 12000, label = "Forecast") {
   const controller = typeof AbortController === "undefined" ? null : new AbortController();
   const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
 
   try {
     const response = await fetchFn(
-      buildForecastUrl(settings),
+      url,
       controller ? { signal: controller.signal } : undefined
     );
     if (!response.ok) {
-      throw new Error(`Forecast request failed with ${response.status}`);
+      throw new Error(`${label} request failed with ${response.status}`);
     }
     return response.json();
   } catch (error) {
     if (error?.name === "AbortError") {
-      throw new Error(`Forecast request timed out after ${timeoutMs / 1000}s`);
+      throw new Error(`${label} request timed out after ${timeoutMs / 1000}s`);
     }
     throw error;
   } finally {

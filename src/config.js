@@ -63,3 +63,4 @@ export const DEFAULTS = {
 export const FORECAST_DAYS = 14;
 
 export const OPEN_METEO_ENDPOINT = "https://api.open-meteo.com/v1/forecast";
+export const DWD_ICON_ENDPOINT = "https://api.open-meteo.com/v1/dwd-icon";

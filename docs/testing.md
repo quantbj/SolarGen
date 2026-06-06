@@ -2,7 +2,7 @@
 
 ## Test Scope
 
-The automated tests cover the forecast model, Open-Meteo request construction, shared chart primitives, forecast chart renderers, the day-ahead history adapter, and the local SQLite history app.
+The automated tests cover the source physical model, production blend, Open-Meteo and DWD request construction, shared chart primitives, forecast chart renderers, the day-ahead history adapter, and the local SQLite history app.
 
 Covered behavior:
 
@@ -21,7 +21,8 @@ Covered behavior:
 - battery storage reduces evening grid import after midday surplus and reports state of charge percent
 - savings, feed-in earnings, and total value formulas remain consistent
 - hourly meteo inputs are preserved for the selected-day generation/weather curve
-- Open-Meteo URL requests the needed tilted solar and weather variables
+- Open-Meteo and DWD ICON URLs request the needed tilted solar and weather variables
+- production blending combines Open-Meteo current output with the DWD stable transfer
 - Open-Meteo request timeout fails into fallback handling instead of hanging indefinitely
 - fallback forecast returns 14 days of hourly data
 - local history snapshots produce 24 hourly forecast records
@@ -66,6 +67,7 @@ node --check src/config.js
 node --check src/utils.js
 node --check src/chartCore.js
 node --check src/model.js
+node --check src/productionBlend.js
 node --check src/weather.js
 node --check src/historyForecast.js
 node --check src/historyForecastCli.mjs
@@ -120,7 +122,7 @@ During development in this environment:
    ```
 
 3. Open `http://127.0.0.1:4183`.
-4. Click `Capture day-ahead forecast`.
+4. Click `Capture production day-ahead`.
 5. Enter an actual daily total for the target date.
-6. Confirm the comparison table shows actual kWh and daily error.
+6. Confirm the comparison table shows the production blend, actual kWh, and daily error.
 7. Enter 24 hourly values and confirm hourly RMSE appears.

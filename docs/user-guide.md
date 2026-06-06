@@ -55,7 +55,7 @@ In the `14 day outlook`, use the left y-axis for PV generation in kWh and the ri
 System inputs:
 
 - `PV capacity`: installed DC peak capacity in kWp.
-- `Roof tilt`: panel tilt in degrees. Changing it refetches Open-Meteo tilted irradiance.
+- `Roof tilt`: panel tilt in degrees. Changing it refetches tilted irradiance for both live forecast sources.
 - `Battery capacity`: usable modeled storage capacity in kWh.
 - `Starting battery`: starting state of charge for the first forecast hour.
 - `Feed-in cap`: maximum hourly export in kW/kWh per hour.
@@ -81,13 +81,30 @@ If the actual commissioning or tariff class differs, adjust the slider.
 
 ## Forecast Reliability
 
-During refresh, the status card shows a spinner and the current stage: preparing the Open-Meteo request, fetching external hourly weather data, simulating PV/storage/euro values, or building the local fallback forecast. Open-Meteo requests time out after 12 seconds so the app does not remain stuck on loading.
+During refresh, the status card shows a spinner and the current stage: preparing Open-Meteo and DWD requests, fetching external hourly weather data, simulating the production blend, or building the local fallback forecast. Live requests time out after 12 seconds so the app does not remain stuck on loading.
 
-The forecast depends on Open-Meteo weather data. If the network request fails, the app switches to a local fallback model that uses a clear-sky curve with synthetic cloud attenuation. The status pill changes to `Forecast offline` when that happens.
+The displayed forecast depends on both Open-Meteo and DWD ICON weather data. If either live request fails, the app switches to a local fallback model that uses a clear-sky curve with synthetic cloud attenuation. The status pill changes to `Forecast offline` when that happens.
 
-## Rooftop Profile Calibration
+## Forecast Model
 
-The default generation curve uses the May 1, 2026 full-sun screenshot as the clear-sky anchor and measured history from May 4-12, 2026 for the weather response. Clear days keep limited output before the late-morning production window and drop again through the late afternoon. Cloudy days blend toward a calibrated diffuse-light profile. Battery charge level is shown separately below the hourly flow chart.
+The displayed browser forecast is the current production blend:
+
+```text
+production = 0.5 * Open-Meteo current model
+           + 0.5 * DWD stable model
+```
+
+The DWD stable model is:
+
+```text
+DWD stable = 0.25 * DWD current model
+           + 0.75 * DWD sunshine/rain model
+           + 4.039 kWh
+```
+
+The production blend was selected on paired forecast-vs-actual history through June 5, 2026. The underlying physical PV model still uses the May 1, 2026 full-sun screenshot as the clear-sky anchor and includes the calibrated rooftop profile visible in the historical actuals.
+
+The local history app uses DWD MOSMIX as its retained DWD source. The public browser app uses DWD ICON through Open-Meteo because it needs a direct JSON API that works from GitHub Pages. Both use the same transfer structure and equal production blend.
 
 ## Accessibility
 
