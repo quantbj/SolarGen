@@ -90,8 +90,8 @@ The displayed forecast depends on both Open-Meteo and DWD ICON weather data. If 
 The displayed browser forecast is the current production blend:
 
 ```text
-production = 0.5 * Open-Meteo current model
-           + 0.5 * DWD stable model
+production = 0.73 * Open-Meteo current model
+           + 0.27 * DWD stable model
 ```
 
 The DWD stable model is:
@@ -102,9 +102,9 @@ DWD stable = 0.25 * DWD current model
            + 4.039 kWh
 ```
 
-The production blend was selected on paired forecast-vs-actual history through June 5, 2026. The underlying physical PV model still uses the May 1, 2026 full-sun screenshot as the clear-sky anchor and includes the calibrated rooftop profile visible in the historical actuals.
+The production blend was selected on paired forecast-vs-actual history through June 12, 2026. The underlying physical PV model still uses the May 1, 2026 full-sun screenshot as the clear-sky anchor and includes the calibrated rooftop profile visible in the historical actuals.
 
-The local history app uses DWD MOSMIX as its retained DWD source. The public browser app uses DWD ICON through Open-Meteo because it needs a direct JSON API that works from GitHub Pages. Both use the same transfer structure and equal production blend.
+The local history app uses DWD MOSMIX as its retained DWD source. The public browser app uses DWD ICON through Open-Meteo because it needs a direct JSON API that works from GitHub Pages. Both use the same transfer structure and production blend.
 
 ## Accessibility
 

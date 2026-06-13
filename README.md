@@ -5,8 +5,8 @@ SolarGen forecasts rooftop PV production, self-consumption savings, and German E
 The displayed forecast uses the current production model:
 
 ```text
-production = 0.5 * Open-Meteo current physical model
-           + 0.5 * DWD stable model
+production = 0.73 * Open-Meteo current physical model
+           + 0.27 * DWD stable model
 ```
 
 with:
@@ -120,7 +120,7 @@ npm test
 - Feed-in cap: `6 kW`
 - Clear-sky anchor day: `50.23 kWh` on `2026-05-01`
 - Source physical-model calibration note: Open-Meteo forecast-vs-actual history through `2026-05-29`
-- Production model selection period: paired source history through `2026-06-05`
+- Production model selection period: paired source history through `2026-06-12`
 - Daily household consumption: about `10 kWh/day` by default
 - Avoided import price: `0.30 EUR/kWh`
 - Feed-in tariff: `0.0778 EUR/kWh`

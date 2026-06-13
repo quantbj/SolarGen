@@ -2,7 +2,7 @@
 
 SolarGen has two related but separate applications.
 
-1. The public/static forecast app runs fully in the browser and displays the equal Open-Meteo/DWD production blend.
+1. The public/static forecast app runs fully in the browser and displays the Open-Meteo-weighted production blend.
 2. The local history app runs on this computer, stores SQLite history, captures Open-Meteo and DWD inputs, and exposes the same production-transfer model for forecast-vs-actual tracking.
 
 ## Static Browser App
@@ -60,7 +60,7 @@ flowchart LR
   C["DWD MOSMIX"] --> B
   B --> D["src/historyForecastCli.mjs"]
   D --> E["src/model.js"]
-  B --> F["Production equal blend"]
+  B --> F["Production OM-weighted blend"]
   F --> G["SQLite history DB"]
   H["EcoFlow/manual actuals"] --> G
   G --> I["history_app.server"]
@@ -73,13 +73,13 @@ The local app is intentionally not part of the public static deployment. It runs
 
 `history_app.forecast_model`
 
-Fetches Open-Meteo and DWD MOSMIX forecasts, converts each source to the local snapshot format, applies the DWD stable transfer model, and creates the production equal blend. The browser app uses DWD ICON instead of MOSMIX because the static app needs a direct JSON endpoint; the transfer formula and final blend are the same.
+Fetches Open-Meteo and DWD MOSMIX forecasts, converts each source to the local snapshot format, applies the DWD stable transfer model, and creates the production blend. The browser app uses DWD ICON instead of MOSMIX because the static app needs a direct JSON endpoint; the transfer formula and final blend are the same.
 
 Production model:
 
 ```text
-production = 0.5 * OM_current_physical
-           + 0.5 * DWD_stable
+production = 0.73 * OM_current_physical
+           + 0.27 * DWD_stable
 ```
 
 with:
@@ -136,7 +136,7 @@ Source physical model:
 Production model:
 
 - DWD stable transfer selected from DWD day-ahead history through `2026-05-29`;
-- production equal blend selected from paired OM/DWD day-ahead history through `2026-06-05`;
+- production OM-weighted blend selected from paired OM/DWD day-ahead history through `2026-06-12`;
 - stored-history performance on 23 paired actual days: `2.802 kWh` MAE, `3.578 kWh` RMSE, `7.92%` MAPE.
 
 ## Deployment Boundary

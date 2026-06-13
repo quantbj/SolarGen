@@ -13,14 +13,14 @@
 
 \title{SolarGen Production Forecast Model}
 \author{SolarGen}
-\date{Model version: production equal blend selected on paired history through 2026-06-05}
+\date{Model version: production OM-weighted blend selected on paired history through 2026-06-12}
 
 \begin{document}
 \maketitle
 
 \section{Scope}
 
-SolarGen forecasts rooftop photovoltaic generation for a 10 kWp south-facing rooftop array in OHZ / Osterholz-Scharmbeck. The production forecast shown in the browser and in the local history app is an equal blend of an Open-Meteo current physical forecast and a DWD stable forecast.
+SolarGen forecasts rooftop photovoltaic generation for a 10 kWp south-facing rooftop array in OHZ / Osterholz-Scharmbeck. The production forecast shown in the browser and in the local history app is an Open-Meteo-weighted blend of an Open-Meteo current physical forecast and a DWD stable forecast.
 
 The browser app obtains DWD data through the Open-Meteo DWD ICON endpoint. The local history app obtains DWD data from DWD MOSMIX. Both surfaces use the same transfer structure and final production blend.
 
@@ -91,8 +91,8 @@ The production daily forecast is:
 \boxed{
 G^{\mathrm{prod}}
 =
-0.5 G^{\mathrm{cur}}_{\mathrm{OM}}
-+ 0.5 G^{\mathrm{stable}}_{\mathrm{DWD}}
+0.73 G^{\mathrm{cur}}_{\mathrm{OM}}
++ 0.27 G^{\mathrm{stable}}_{\mathrm{DWD}}
 }
 \]
 
@@ -116,8 +116,8 @@ The production hourly curve is:
 \[
 G^{\mathrm{prod}}_h
 =
-0.5G^{\mathrm{cur}}_{\mathrm{OM},h}
-+ 0.5\widetilde{G}_{\mathrm{DWD},h}.
+0.73G^{\mathrm{cur}}_{\mathrm{OM},h}
++ 0.27\widetilde{G}_{\mathrm{DWD},h}.
 \]
 
 The curve is then scaled by a small numerical factor if needed so that:
@@ -144,37 +144,37 @@ where \(F=6\ \mathrm{kW}\) by default. Delivered PV first covers same-hour house
 
 \section{Selection Evidence}
 
-The production model was selected on paired Open-Meteo and DWD day-ahead forecast history with actuals through 2026-06-05.
+The production model was selected on paired Open-Meteo and DWD day-ahead forecast history with actuals through 2026-06-12.
 
 \begin{center}
 \begin{tabular}{lrrrr}
 \toprule
 Model & In-sample MAE & LOO MAE & Rolling MAE & Comment \\
 \midrule
-Previous production blend & 2.812 & 2.812 & 3.092 & OM weight too high \\
-Equal OM current + DWD stable & 2.802 & 2.802 & 2.942 & selected \\
-Fitted source weights & 2.821 & 3.090 & 3.138 & overfits \\
-Rain-regime blend & 2.737 & 3.188 & 3.105 & overfits \\
-Direct meteo ridge & 2.889 & 3.408 & 3.377 & overfits \\
+Equal blend & 3.918 & fixed & 5.010 & recent low bias \\
+OM only & 4.147 & fixed & -- & single source \\
+DWD stable only & 4.567 & fixed & -- & single source \\
+Fitted weight, no bias & 3.861 & 3.945 & 5.208 & selected \\
+Fitted weight plus bias & 3.844 & 4.485 & 5.419 & overfits \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-The selected model is not the best in-sample model. It is the simplest model that performs best in the out-of-sample checks available so far.
+The selected model is not the best in-sample model. It is the smallest recalibration that improves the retained sample while avoiding a bias term that degraded out-of-sample checks.
 
 \section{Current Stored-History Accuracy}
 
-After recomputing production rows under the equal blend, the local history database contains 23 paired actual days:
+After recomputing production rows under the recalibrated blend, the local history database contains 30 paired actual days:
 
 \begin{center}
 \begin{tabular}{lr}
 \toprule
 Metric & Value \\
 \midrule
-MAE & 2.802 kWh \\
-RMSE & 3.578 kWh \\
-Bias & 0.014 kWh \\
-MAPE & 7.92 percent \\
+MAE & 3.861 kWh \\
+RMSE & 5.186 kWh \\
+Bias & 1.185 kWh \\
+MAPE & 10.69 percent \\
 \bottomrule
 \end{tabular}
 \end{center}

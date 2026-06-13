@@ -4,13 +4,14 @@ import { householdLoad, sumHours } from "./model.js";
 export const DWD_STABLE_CURRENT_WEIGHT = 0.25;
 export const DWD_STABLE_RAW_WEIGHT = 0.75;
 export const DWD_STABLE_BIAS_KWH = 4.039;
-export const PRODUCTION_OM_WEIGHT = 0.5;
-export const PRODUCTION_DWD_WEIGHT = 0.5;
+export const PRODUCTION_OM_WEIGHT = 0.73;
+export const PRODUCTION_DWD_WEIGHT = 0.27;
+export const PRODUCTION_BLEND_BIAS_KWH = 0.0;
 
 /**
  * Combine simulated Open-Meteo and DWD forecast days into the production forecast.
  * The daily total uses the same transfer structure as the local history app:
- *   0.5 * OM current + 0.5 * DWD stable
+ *   0.73 * OM current + 0.27 * DWD stable
  * where DWD stable is a blend of the DWD physical model and the sunshine/rain model.
  */
 export function blendProductionForecastDays(openMeteoDays, dwdDays, settings = DEFAULTS) {
@@ -50,7 +51,8 @@ export function blendProductionForecastDays(openMeteoDays, dwdDays, settings = D
 
     const targetTotal =
       PRODUCTION_OM_WEIGHT * omDay.pv +
-      PRODUCTION_DWD_WEIGHT * dwdStableTotal;
+      PRODUCTION_DWD_WEIGHT * dwdStableTotal +
+      PRODUCTION_BLEND_BIAS_KWH;
     scaleHoursToTotal(baseHours, targetTotal);
 
     const hours = baseHours.map(hour => {
@@ -90,7 +92,7 @@ export function blendProductionForecastDays(openMeteoDays, dwdDays, settings = D
     const totals = sumHours(hours);
     blended.push({
       ...omDay,
-      sourceModel: "Production equal blend",
+      sourceModel: "Production OM-weighted blend",
       sourceOpenMeteoTotal: omDay.pv,
       sourceDwdStableTotal: dwdStableTotal,
       sourceDwdCurrentTotal: dwdDay.pv,

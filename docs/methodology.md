@@ -5,7 +5,7 @@ This document describes the SolarGen production forecast model used by both fore
 - the public/static browser forecast;
 - the local history/production forecast.
 
-Both surfaces now use the same production-transfer structure: Open-Meteo current physical forecast plus DWD stable forecast, blended 50/50. The static browser fetches DWD ICON through Open-Meteo's DWD endpoint because it must run without Python or a local database. The local history app stores DWD MOSMIX input rows because that is the retained historical DWD source. Both apply the same DWD stable transfer and production blend.
+Both surfaces now use the same production-transfer structure: Open-Meteo current physical forecast plus DWD stable forecast, blended with a modest Open-Meteo weight. The static browser fetches DWD ICON through Open-Meteo's DWD endpoint because it must run without Python or a local database. The local history app stores DWD MOSMIX input rows because that is the retained historical DWD source. Both apply the same DWD stable transfer and production blend.
 
 ## System Scope
 
@@ -96,22 +96,22 @@ DWD_stable = 0.25 * DWD_current_physical
 Production blend:
 
 ```text
-production = 0.5 * OM_current_physical
-           + 0.5 * DWD_stable
+production = 0.73 * OM_current_physical
+           + 0.27 * DWD_stable
 ```
 
 There is no production-blend bias term in the current model.
 
-Selection basis: paired Open-Meteo and DWD day-ahead forecast history with actuals through `2026-06-05`. Out-of-sample checks favoured this stable equal blend over fitted weights or richer meteo regressions.
+Selection basis: paired Open-Meteo and DWD day-ahead forecast history with actuals through `2026-06-12`. Recent post-`2026-06-05` errors showed the equal blend was being pulled low by the DWD stable leg. A small reweighting toward Open-Meteo improved the full retained sample without adding a bias term, which did not generalize in leave-one-out checks.
 
-Current stored-history performance for the equal blend on 23 paired actual days:
+Current stored-history performance for the recalibrated blend on 30 paired actual days:
 
 | Metric | Value |
 |---|---:|
-| MAE | `2.802 kWh` |
-| RMSE | `3.578 kWh` |
-| Bias | `0.014 kWh` |
-| MAPE | `7.92%` |
+| MAE | `3.861 kWh` |
+| RMSE | `5.186 kWh` |
+| Bias | `1.185 kWh` |
+| MAPE | `10.69%` |
 
 ## Hourly Production Allocation
 

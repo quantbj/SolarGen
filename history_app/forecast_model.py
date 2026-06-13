@@ -51,12 +51,12 @@ DWD_SIMPLE_CALIBRATION_BASIS = (
     "best stable model blends 25% current model with 75% raw sunshine/rain simple model"
 )
 PRODUCTION_BLEND_SOURCE = "Production blend day-ahead"
-PRODUCTION_BLEND_OM_WEIGHT = 0.5
-PRODUCTION_BLEND_DWD_WEIGHT = 0.5
+PRODUCTION_BLEND_OM_WEIGHT = 0.73
+PRODUCTION_BLEND_DWD_WEIGHT = 0.27
 PRODUCTION_BLEND_BIAS_KWH = 0.0
 PRODUCTION_BLEND_BASIS = (
-    "paired OM+DWD day-ahead history through 2026-06-05; "
-    "out-of-sample tests favoured a stable equal blend of OM current and DWD stable simple"
+    "paired OM+DWD day-ahead history through 2026-06-12; "
+    "recent errors favoured a modest OM-weighted blend without adding a production bias"
 )
 
 
@@ -196,7 +196,7 @@ def blend_production_day_ahead(om_snapshot: dict[str, Any], dwd_snapshot: dict[s
 
     weather = {
         **om_snapshot.get("weather", {}),
-        "production_model": "OM current plus DWD stable equal blend",
+        "production_model": "OM current plus DWD stable OM-weighted blend",
         "production_model_basis": PRODUCTION_BLEND_BASIS,
         "production_om_weight": PRODUCTION_BLEND_OM_WEIGHT,
         "production_dwd_weight": PRODUCTION_BLEND_DWD_WEIGHT,

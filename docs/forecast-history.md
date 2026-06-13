@@ -69,8 +69,8 @@ The file can contain values separated by spaces, commas, semicolons, or new line
 ## Current Production Model
 
 ```text
-production = 0.5 * OM_current_physical
-           + 0.5 * DWD_stable
+production = 0.73 * OM_current_physical
+           + 0.27 * DWD_stable
 ```
 
 with:
@@ -81,7 +81,7 @@ DWD_stable = 0.25 * DWD_current_physical
            + 4.039
 ```
 
-Selection basis: paired day-ahead source history through `2026-06-05`.
+Selection basis: paired day-ahead source history through `2026-06-12`.
 
 ## Stored Data
 

@@ -10,7 +10,13 @@ import {
   householdLoad,
   simulateForecast
 } from "../src/model.js";
-import { blendProductionForecastDays, dwdStableForecastTotal } from "../src/productionBlend.js";
+import {
+  PRODUCTION_BLEND_BIAS_KWH,
+  PRODUCTION_DWD_WEIGHT,
+  PRODUCTION_OM_WEIGHT,
+  blendProductionForecastDays,
+  dwdStableForecastTotal
+} from "../src/productionBlend.js";
 import { buildDwdIconForecastUrl, buildFallbackForecast, buildForecastUrl, fetchOpenMeteoForecast } from "../src/weather.js";
 import { buildHistoryForecastUrl, captureDayAheadForecast, captureForecastSnapshot, simpleDailyForecastTotal } from "../src/historyForecast.js";
 import { debounce, formatDay, formatMoney, formatNumber, valueAt } from "../src/utils.js";
@@ -279,11 +285,14 @@ test("production blend combines Open-Meteo current and DWD stable transfer", () 
   }), noLoadSettings())[0];
 
   const [production] = blendProductionForecastDays([omDay], [dwdDay], noLoadSettings());
-  const expectedTotal = 0.5 * omDay.pv + 0.5 * dwdStableForecastTotal(dwdDay);
+  const expectedTotal =
+    PRODUCTION_OM_WEIGHT * omDay.pv +
+    PRODUCTION_DWD_WEIGHT * dwdStableForecastTotal(dwdDay) +
+    PRODUCTION_BLEND_BIAS_KWH;
 
   assert.ok(Math.abs(production.pv - expectedTotal) < 0.000001);
   assert.ok(production.hours.every(hour => hour.pv >= 0));
-  assert.equal(production.sourceModel, "Production equal blend");
+  assert.equal(production.sourceModel, "Production OM-weighted blend");
 });
 
 test("history capture selects the day-ahead forecast and serializes hourly values", () => {

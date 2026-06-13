@@ -115,9 +115,9 @@ async function fetchForecast() {
     state.forecast = openMeteoForecast;
     state.dwdForecast = dwdForecast;
 
-    setLoading(true, "Forecasts received. Simulating the equal production blend, 6 kW curtailment, 10 kWh battery flow, and EUR values.");
+    setLoading(true, "Forecasts received. Simulating the production blend, 6 kW curtailment, 10 kWh battery flow, and EUR values.");
     await waitForPaint();
-    els.updatedAt.textContent = `Equal Open-Meteo/DWD blend for ${LOCATION.name}`;
+    els.updatedAt.textContent = `Open-Meteo-weighted blend for ${LOCATION.name}`;
     setStatus("Live forecast", false);
   } catch (error) {
     console.error(error);
