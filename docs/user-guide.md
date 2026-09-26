@@ -83,7 +83,7 @@ If the actual commissioning or tariff class differs, adjust the slider.
 
 During refresh, the status card shows a spinner and the current stage: preparing Open-Meteo and DWD requests, fetching external hourly weather data, simulating the production blend, or building the local fallback forecast. Live requests time out after 12 seconds so the app does not remain stuck on loading.
 
-The displayed forecast depends on both Open-Meteo and DWD ICON weather data. If either live request fails, the app switches to a local fallback model that uses a clear-sky curve with synthetic cloud attenuation. The status pill changes to `Forecast offline` when that happens.
+The displayed forecast depends on both Open-Meteo and DWD ICON weather data. If either live request fails, the app switches to a local fallback model that uses a clear-sky curve with synthetic cloud attenuation and the same 6.1 kWh forecastable hourly cap. The status pill changes to `Forecast offline` when that happens.
 
 ## Forecast Model
 

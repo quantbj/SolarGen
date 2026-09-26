@@ -70,7 +70,7 @@ export function renderDailyChart(canvas, days, selectedIndex, onSelectDay, hidde
   });
 
   const legendBoxes = drawLegend(ctx, [
-    { id: "pv", color: COLORS.sky, label: "PV kWh", disabled: !isVisible("pv") },
+    { id: "pv", color: COLORS.sky, label: "Forecast <=6.1 cap", disabled: !isVisible("pv") },
     { id: "value", color: COLORS.purple, label: "EUR value", disabled: !isVisible("value") }
   ], rect.x, 18);
 
@@ -146,7 +146,7 @@ export function renderHourlyChart(canvas, day, hiddenSeries = new Set(), onToggl
     drawBar(ctx, rect, x + 2, barWidth - 4, hour.pv, maxValue, COLORS.blue);
     hitTargets.push({
       id: "pv",
-      label: "PV",
+      label: "Forecast <=6.1 cap",
       unit: "kWh/h",
       type: "bar",
       x: x + 2,
@@ -184,7 +184,7 @@ export function renderHourlyChart(canvas, day, hiddenSeries = new Set(), onToggl
   });
 
   const legendBoxes = drawLegend(ctx, [
-    { id: "pv", color: COLORS.blue, label: "PV", disabled: !isVisible("pv") },
+    { id: "pv", color: COLORS.blue, label: "Forecast <=6.1 cap", disabled: !isVisible("pv") },
     { id: "load", color: COLORS.vermillion, label: "Load", disabled: !isVisible("load") },
     { id: "export", color: COLORS.navy, label: "Export", disabled: !isVisible("export") }
   ], rect.x, 16);
@@ -254,7 +254,7 @@ export function renderGenerationWeatherChart(canvas, day, hiddenSeries = new Set
   const lineSeries = [
     {
       id: "rooftop",
-      label: "Rooftop PV",
+      label: "Forecast <=6.1 cap",
       color: COLORS.blue,
       rect: top,
       max: maxPv,
@@ -264,7 +264,7 @@ export function renderGenerationWeatherChart(canvas, day, hiddenSeries = new Set
     },
     {
       id: "delivered",
-      label: "After curtailment",
+      label: "Delivered <= feed-in cap",
       color: COLORS.navy,
       rect: top,
       max: maxPv,
@@ -340,8 +340,8 @@ export function renderGenerationWeatherChart(canvas, day, hiddenSeries = new Set
 
   drawTimeLabels(ctx, top, canvasCssHeight(canvas) - 17);
   const legendBoxes = drawLegend(ctx, [
-    { id: "rooftop", color: COLORS.blue, label: "Rooftop PV", disabled: !isVisible("rooftop") },
-    { id: "delivered", color: COLORS.navy, label: "After curtailment", disabled: !isVisible("delivered") },
+    { id: "rooftop", color: COLORS.blue, label: "Forecast <=6.1 cap", disabled: !isVisible("rooftop") },
+    { id: "delivered", color: COLORS.navy, label: "Delivered <= feed-in cap", disabled: !isVisible("delivered") },
     { id: "curtailed", color: COLORS.vermillion, label: "Curtailed", disabled: !isVisible("curtailed") },
     { id: "cloud", color: COLORS.grey, label: "Cloud %", disabled: !isVisible("cloud") },
     { id: "temperature", color: COLORS.yellow, label: "Temp deg C", disabled: !isVisible("temperature") },

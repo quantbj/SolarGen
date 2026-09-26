@@ -56,44 +56,10 @@ export function blendProductionForecastDays(openMeteoDays, dwdDays, settings = D
       PRODUCTION_DWD_WEIGHT * dwdStableTotal +
       PRODUCTION_BLEND_BIAS_KWH;
     scaleHoursToTotal(baseHours, uncappedTargetTotal);
-    baseHours.forEach(hour => {
-      hour.theoreticalPv = hour.pv;
-      hour.pv = Math.min(hour.pv, PRODUCTION_FORECASTABLE_HOURLY_CAP_KWH);
-    });
-
-    const hours = baseHours.map(hour => {
-      const deliveredPv = Math.min(hour.pv, settings.feedCap);
-      const curtailed = Math.max(0, hour.theoreticalPv - deliveredPv);
-      const load = householdLoad(hour.hour, settings);
-      const direct = Math.min(deliveredPv, load);
-      let remainingLoad = load - direct;
-      const discharge = Math.min(batterySoc, remainingLoad);
-      batterySoc -= discharge;
-      remainingLoad -= discharge;
-
-      let surplus = deliveredPv - direct;
-      const chargeRoom = Math.max(0, settings.battery - batterySoc);
-      const chargeInput = Math.min(surplus, chargeRoom / 0.94);
-      batterySoc += chargeInput * 0.94;
-      surplus -= chargeInput;
-
-      const exportKwh = Math.min(surplus, settings.feedCap);
-      const batteryPercent = settings.battery > 0 ? (batterySoc / settings.battery) * 100 : 0;
-
-      return {
-        ...hour,
-        deliveredPv,
-        load,
-        direct,
-        discharge,
-        charge: chargeInput * 0.94,
-        exportKwh,
-        curtailed,
-        importKwh: Math.max(0, remainingLoad),
-        batterySoc,
-        batteryPercent
-      };
-    });
+    baseHours.forEach(hour => { hour.theoreticalPv = hour.pv; });
+    const simulation = simulateCappedHours(baseHours, settings, batterySoc);
+    const hours = simulation.hours;
+    batterySoc = simulation.batterySoc;
 
     const totals = sumHours(hours);
     blended.push({
@@ -114,6 +80,31 @@ export function blendProductionForecastDays(openMeteoDays, dwdDays, settings = D
   }
 
   return blended;
+}
+
+/** Apply the production model's forecastable cap when live source blending is unavailable. */
+export function capForecastableProductionDays(sourceDays, settings = DEFAULTS) {
+  let batterySoc = settings.battery * (settings.batteryStart / 100);
+  return sourceDays.map(sourceDay => {
+    const baseHours = sourceDay.hours.map(hour => ({
+      ...hour,
+      theoreticalPv: Math.max(0, hour.pv)
+    }));
+    const simulation = simulateCappedHours(baseHours, settings, batterySoc);
+    batterySoc = simulation.batterySoc;
+    const totals = sumHours(simulation.hours);
+    return {
+      ...sourceDay,
+      sourceModel: "Production hourly-capped fallback",
+      sourceUncappedBlendTotal: baseHours.reduce((total, hour) => total + hour.theoreticalPv, 0),
+      forecastableHourlyCap: PRODUCTION_FORECASTABLE_HOURLY_CAP_KWH,
+      hours: simulation.hours,
+      ...totals,
+      savings: totals.selfConsumed * settings.price,
+      earnings: totals.exportKwh * settings.tariff,
+      totalValue: totals.selfConsumed * settings.price + totals.exportKwh * settings.tariff
+    };
+  });
 }
 
 export function dwdStableForecastTotal(day) {
@@ -139,4 +130,43 @@ function scaleHoursToTotal(hours, targetTotal) {
     hour.pv = Math.max(0, hour.pv * scale);
     hour.theoreticalPv = hour.pv;
   });
+}
+
+function simulateCappedHours(baseHours, settings, startingBatterySoc) {
+  let batterySoc = startingBatterySoc;
+  const hours = baseHours.map(hour => {
+    const theoreticalPv = Math.max(0, hour.theoreticalPv);
+    const pv = Math.min(theoreticalPv, PRODUCTION_FORECASTABLE_HOURLY_CAP_KWH);
+    const deliveredPv = Math.min(pv, settings.feedCap);
+    const curtailed = Math.max(0, theoreticalPv - deliveredPv);
+    const load = householdLoad(hour.hour, settings);
+    const direct = Math.min(deliveredPv, load);
+    let remainingLoad = load - direct;
+    const discharge = Math.min(batterySoc, remainingLoad);
+    batterySoc -= discharge;
+    remainingLoad -= discharge;
+
+    let surplus = deliveredPv - direct;
+    const chargeRoom = Math.max(0, settings.battery - batterySoc);
+    const chargeInput = Math.min(surplus, chargeRoom / 0.94);
+    batterySoc += chargeInput * 0.94;
+    surplus -= chargeInput;
+
+    return {
+      ...hour,
+      theoreticalPv,
+      pv,
+      deliveredPv,
+      load,
+      direct,
+      discharge,
+      charge: chargeInput * 0.94,
+      exportKwh: Math.min(surplus, settings.feedCap),
+      curtailed,
+      importKwh: Math.max(0, remainingLoad),
+      batterySoc,
+      batteryPercent: settings.battery > 0 ? (batterySoc / settings.battery) * 100 : 0
+    };
+  });
+  return { hours, batterySoc };
 }

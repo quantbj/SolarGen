@@ -1,7 +1,7 @@
 import { DEFAULTS, LOCATION } from "./config.js";
 import { renderBatteryChart, renderDailyChart, renderGenerationWeatherChart, renderHourlyChart } from "./charts.js";
 import { simulateForecast } from "./model.js";
-import { blendProductionForecastDays } from "./productionBlend.js";
+import { blendProductionForecastDays, capForecastableProductionDays } from "./productionBlend.js";
 import { buildFallbackForecast, fetchDwdIconForecast, fetchOpenMeteoForecast } from "./weather.js";
 import { debounce, formatMoney, formatNumber } from "./utils.js";
 
@@ -115,9 +115,9 @@ async function fetchForecast() {
     state.forecast = openMeteoForecast;
     state.dwdForecast = dwdForecast;
 
-    setLoading(true, "Forecasts received. Simulating the production blend, 6 kW curtailment, 10 kWh battery flow, and EUR values.");
+    setLoading(true, "Forecasts received. Applying the hourly-capped production blend, battery flow, and EUR values.");
     await waitForPaint();
-    els.updatedAt.textContent = `Open-Meteo-weighted blend for ${LOCATION.name}`;
+    els.updatedAt.textContent = `Hourly-capped Open-Meteo/DWD-stable blend for ${LOCATION.name}`;
     setStatus("Live forecast", false);
   } catch (error) {
     console.error(error);
@@ -162,7 +162,7 @@ function computeAndRender() {
     const dwdDays = simulateForecast(state.dwdForecast, state.settings);
     state.days = blendProductionForecastDays(openMeteoDays, dwdDays, state.settings);
   } else {
-    state.days = openMeteoDays;
+    state.days = capForecastableProductionDays(openMeteoDays, state.settings);
   }
   state.selectedIndex = Math.min(state.selectedIndex, Math.max(0, state.days.length - 1));
   render();
@@ -238,7 +238,7 @@ function renderSummary() {
   els.todayFeedIn.textContent = formatMoney(today.earnings);
   els.periodValue.textContent = formatMoney(totals.value);
   els.periodBreakdown.textContent = `${formatMoney(totals.savings)} saved + ${formatMoney(totals.earnings)} feed-in`;
-  els.forecastMeta.textContent = `${formatNumber(totals.pv, 0)} kWh PV forecast across ${state.days.length} days`;
+  els.forecastMeta.textContent = `${formatNumber(totals.pv, 0)} kWh forecastable PV across ${state.days.length} days`;
 }
 
 function renderDaySelect() {
@@ -252,14 +252,14 @@ function renderDaySelect() {
 function renderDetails() {
   const day = state.days[state.selectedIndex];
   const items = [
-    ["PV generation", `${formatNumber(day.pv, 1)} kWh`],
-    ["Theoretical potential", `${formatNumber(day.theoreticalPv, 1)} kWh`],
-    ["After curtailment", `${formatNumber(day.deliveredPv, 1)} kWh`],
+    ["Forecast <= 6.1 cap", `${formatNumber(day.pv, 1)} kWh`],
+    ["Uncapped theoretical", `${formatNumber(day.theoreticalPv, 1)} kWh`],
+    ["Delivered <= feed-in cap", `${formatNumber(day.deliveredPv, 1)} kWh`],
     ["Total value", formatMoney(day.totalValue)],
     ["Self-consumed", `${formatNumber(day.selfConsumed, 1)} kWh`],
     ["Grid export", `${formatNumber(day.exportKwh, 1)} kWh`],
     ["Grid import", `${formatNumber(day.importKwh, 1)} kWh`],
-    ["Curtailed", `${formatNumber(day.curtailed, 1)} kWh`],
+    ["Total curtailed", `${formatNumber(day.curtailed, 1)} kWh`],
     ["Weather", weatherText(day.weatherCode)],
     ["Cloud / rain", `${formatNumber(day.cloud, 0)}% / ${formatNumber(day.rain, 1)} mm`],
     ["Temperature", `${formatNumber(day.tempMin, 0)}-${formatNumber(day.tempMax, 0)} deg C`],

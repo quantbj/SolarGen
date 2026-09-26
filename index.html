@@ -35,7 +35,7 @@
       <main id="mainContent">
         <section class="summary-grid" aria-label="Solar forecast summary">
           <article class="metric">
-            <span>Today generation</span>
+            <span>Today forecast &lt;= cap</span>
             <strong id="todayGeneration">--</strong>
             <small id="todayWeather">Weather forecast pending</small>
           </article>
@@ -146,13 +146,13 @@
                 <span id="forecastMeta" class="small-muted">Waiting for forecast data</span>
               </div>
               <canvas id="dailyChart" height="280" role="img" aria-label="Daily generation and value chart" aria-describedby="dailyChartDescription"></canvas>
-              <p id="dailyChartDescription" class="sr-only">Bar chart with daily PV generation in kilowatt-hours and total euro value for each forecast day. Use the forecast table for exact keyboard-accessible values.</p>
+              <p id="dailyChartDescription" class="sr-only">Bar chart with daily forecastable PV generation below the 6.1 kilowatt-hour hourly cap and total euro value for each forecast day. Use the forecast table for exact keyboard-accessible values.</p>
             </div>
 
             <div class="chart-panel meteo-panel">
               <div class="panel-title">
                 <h2 id="generationWeatherTitle">Generation and weather</h2>
-                <span class="small-muted">Rooftop PV, curtailment, cloud, temperature, rain</span>
+                <span class="small-muted">Capped forecast, delivered PV, curtailment, weather</span>
               </div>
               <canvas id="generationWeatherChart" height="320" role="img" aria-label="Selected day generation and weather chart" aria-describedby="generationWeatherDescription"></canvas>
               <p id="generationWeatherDescription" class="sr-only">Line chart for the selected day showing rooftop PV, curtailed output, cloud cover, temperature, and rain. Toggle visible series with the chart legend.</p>
@@ -200,7 +200,7 @@
                     <tr>
                       <th scope="col">Date</th>
                       <th scope="col">Weather</th>
-                      <th scope="col">PV kWh</th>
+                      <th scope="col">Forecast &lt;= cap</th>
                       <th scope="col">Home kWh</th>
                       <th scope="col">Export kWh</th>
                       <th scope="col">Saved</th>
@@ -226,6 +226,6 @@
         });
       }
     </script>
-    <script type="module" src="src/main.js?v=20260509-refactor"></script>
+    <script type="module" src="src/main.js?v=20260926-model"></script>
   </body>
 </html>

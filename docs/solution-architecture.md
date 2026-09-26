@@ -2,7 +2,7 @@
 
 SolarGen has two related but separate applications.
 
-1. The public/static forecast app runs fully in the browser and displays the Open-Meteo-weighted production blend.
+1. The public/static forecast app runs fully in the browser and displays the hourly-capped Open-Meteo/DWD-stable production blend.
 2. The local history app runs on this computer, stores SQLite history, captures Open-Meteo and DWD inputs, and exposes the same production-transfer model for forecast-vs-actual tracking.
 
 ## Static Browser App

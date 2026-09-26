@@ -16,6 +16,7 @@ import {
   PRODUCTION_FORECASTABLE_HOURLY_CAP_KWH,
   PRODUCTION_OM_WEIGHT,
   blendProductionForecastDays,
+  capForecastableProductionDays,
   dwdStableForecastTotal
 } from "../src/productionBlend.js";
 import { buildDwdIconForecastUrl, buildFallbackForecast, buildForecastUrl, fetchOpenMeteoForecast } from "../src/weather.js";
@@ -318,6 +319,22 @@ test("production blend caps forecastable hourly generation and preserves theoret
   assert.ok(production.theoreticalPv > production.pv);
   assert.ok(production.curtailed > 0);
   assert.equal(round(production.theoreticalPv), round(production.pv + production.curtailed));
+});
+
+test("offline production fallback applies the same forecastable hourly cap", () => {
+  const settings = { ...noLoadSettings(), feedCap: 20 };
+  const sourceDay = simulateForecast(oneDayForecast({
+    irradianceByHour: hour => (hour >= 11 && hour <= 14 ? 1800 : 0),
+    date: "2026-06-01"
+  }), settings)[0];
+
+  const [fallback] = capForecastableProductionDays([sourceDay], settings);
+
+  assert.ok(sourceDay.hours.some(hour => hour.pv > PRODUCTION_FORECASTABLE_HOURLY_CAP_KWH));
+  assert.ok(fallback.hours.every(hour => hour.pv <= PRODUCTION_FORECASTABLE_HOURLY_CAP_KWH));
+  assert.equal(round(fallback.theoreticalPv), round(sourceDay.pv));
+  assert.ok(fallback.curtailed > 0);
+  assert.equal(fallback.sourceModel, "Production hourly-capped fallback");
 });
 
 test("history capture selects the day-ahead forecast and serializes hourly values", () => {
