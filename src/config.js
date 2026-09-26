@@ -55,9 +55,9 @@ export const DEFAULTS = {
   feedCap: 6,
   price: 0.3,
   tariff: 0.0778,
-  baseLoad: 0.2,
-  dayLoad: 0.2,
-  eveningLoad: 0.6
+  baseLoad: 0.46,
+  dayLoad: 0.21,
+  eveningLoad: 0.22
 };
 
 export const FORECAST_DAYS = 14;

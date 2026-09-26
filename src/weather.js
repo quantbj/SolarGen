@@ -1,5 +1,5 @@
-import { DEFAULTS, DWD_ICON_ENDPOINT, FORECAST_DAYS, LOCATION, OPEN_METEO_ENDPOINT } from "./config.js";
-import { fallbackIrradiance } from "./model.js";
+import { DEFAULTS, DWD_ICON_ENDPOINT, FORECAST_DAYS, LOCATION, OPEN_METEO_ENDPOINT } from "./config.js?v=20260926-load";
+import { fallbackIrradiance } from "./model.js?v=20260926-load";
 
 /**
  * Build the default Open-Meteo forecast URL for the configured location and roof tilt.

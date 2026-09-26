@@ -109,27 +109,27 @@
             <label>
               <span class="load-label">
                 <span>Base load <span class="info-tip" tabindex="0" aria-label="Base load explanation" aria-describedby="baseLoadHelp" data-tooltip="Constant household demand applied every hour, day and night."></span></span>
-                <b id="baseLoadValue">0.20 kW</b>
+                <b id="baseLoadValue">0.46 kW</b>
               </span>
-              <input id="baseLoad" type="range" min="0.1" max="1.5" value="0.20" step="0.05" aria-describedby="baseLoadHelp">
+              <input id="baseLoad" type="range" min="0.1" max="1.5" value="0.46" step="0.01" aria-describedby="baseLoadHelp">
               <span id="baseLoadHelp" class="sr-only">Constant household demand applied every hour, day and night.</span>
             </label>
 
             <label>
               <span class="load-label">
-                <span>Daytime extra <span class="info-tip" tabindex="0" aria-label="Daytime extra load explanation" aria-describedby="dayLoadHelp" data-tooltip="Additional household demand from 08:00 to 18:00, with a partial morning ramp from 06:00 to 08:00."></span></span>
-                <b id="dayLoadValue">0.20 kW</b>
+                <span>Daytime extra <span class="info-tip" tabindex="0" aria-label="Daytime extra load explanation" aria-describedby="dayLoadHelp" data-tooltip="Additional household demand from 09:00 to 18:00, calibrated from the recorded load pattern."></span></span>
+                <b id="dayLoadValue">0.21 kW</b>
               </span>
-              <input id="dayLoad" type="range" min="0" max="2.0" value="0.20" step="0.05" aria-describedby="dayLoadHelp">
-              <span id="dayLoadHelp" class="sr-only">Additional household demand from 08:00 to 18:00, with a partial morning ramp from 06:00 to 08:00.</span>
+              <input id="dayLoad" type="range" min="0" max="2.0" value="0.21" step="0.01" aria-describedby="dayLoadHelp">
+              <span id="dayLoadHelp" class="sr-only">Additional household demand from 09:00 to 18:00, calibrated from the recorded load pattern.</span>
             </label>
 
             <label>
               <span class="load-label">
                 <span>Evening extra <span class="info-tip" tabindex="0" aria-label="Evening extra load explanation" aria-describedby="eveningLoadHelp" data-tooltip="Additional household demand from 18:00 to 23:00, used to model higher evening consumption."></span></span>
-                <b id="eveningLoadValue">0.60 kW</b>
+                <b id="eveningLoadValue">0.22 kW</b>
               </span>
-              <input id="eveningLoad" type="range" min="0" max="3.0" value="0.60" step="0.05" aria-describedby="eveningLoadHelp">
+              <input id="eveningLoad" type="range" min="0" max="3.0" value="0.22" step="0.01" aria-describedby="eveningLoadHelp">
               <span id="eveningLoadHelp" class="sr-only">Additional household demand from 18:00 to 23:00, used to model higher evening consumption.</span>
             </label>
 
@@ -226,6 +226,6 @@
         });
       }
     </script>
-    <script type="module" src="src/main.js?v=20260926-model"></script>
+    <script type="module" src="src/main.js?v=20260926-load2"></script>
   </body>
 </html>

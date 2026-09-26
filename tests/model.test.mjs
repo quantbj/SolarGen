@@ -57,7 +57,7 @@ test("cloud response uplifts high-cloud low-irradiance hours without changing cl
   assert.ok(stormyBrightOvercast < 200);
 });
 
-test("household load shape includes morning, daytime, and evening demand", () => {
+test("household load shape applies the calibrated daytime and evening bands", () => {
   const settings = {
     ...DEFAULTS,
     baseLoad: 0.3,
@@ -66,16 +66,18 @@ test("household load shape includes morning, daytime, and evening demand", () =>
   };
 
   assert.equal(householdLoad(2, settings), 0.3);
-  assert.equal(householdLoad(7, settings), 0.48);
+  assert.equal(householdLoad(7, settings), 0.3);
+  assert.equal(householdLoad(8, settings), 0.3);
   assert.equal(householdLoad(12, settings), 0.7);
   assert.equal(round(householdLoad(20, settings)), 1.4);
+  assert.equal(householdLoad(23, settings), 0.3);
 });
 
-test("default household load assumes about 10 kWh daily consumption", () => {
+test("default household load matches the calibrated 14.03 kWh daily consumption", () => {
   const dailyConsumption = Array.from({ length: 24 }, (_, hour) => householdLoad(hour, DEFAULTS))
     .reduce((sum, load) => sum + load, 0);
 
-  assert.ok(Math.abs(dailyConsumption - 10) < 0.05);
+  assert.ok(Math.abs(dailyConsumption - 14.03) < 0.001);
 });
 
 test("simulation applies feed-in cap and reports curtailment", () => {

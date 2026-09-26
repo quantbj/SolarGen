@@ -134,6 +134,21 @@ delivered_kWh = rooftop_pv_kWh - curtailed_kWh
 
 For production-blend history rows, `forecast_kwh`, `delivered_kwh`, and `theoretical_kwh` all represent the production forecast curve, and `curtailed_kwh` is stored as zero because the production blend is already an empirical output forecast.
 
+## Household Consumption Profile
+
+The browser app uses a deliberately simple three-level household load profile for battery, import, export, and value calculations:
+
+```text
+00:00-09:00 and 23:00-24:00: 0.46 kWh/h
+09:00-18:00:                 0.46 + 0.21 = 0.67 kWh/h
+18:00-23:00:                 0.46 + 0.22 = 0.68 kWh/h
+daily total:                                  14.03 kWh
+```
+
+The profile was calibrated on EcoFlow `load_power_w` telemetry from May 17 through September 26, 2026. Samples were integrated in local time with gaps longer than 15 minutes excluded. Calibration retained 1,393 date-hour observations across 99 dates with at least 75% coverage in each hour.
+
+Candidate models kept the same three parameters and varied only the daytime/evening boundaries and the existing early-morning ramp. The selected 09:00-18:00 daytime and 18:00-23:00 evening structure removes the unsupported morning ramp and stays close to the best chronological-validation candidates while preserving intuitive operating periods. Against the retained hourly observations, the implemented rounded profile improves MAE from `0.283 kW` to `0.236 kW`, RMSE from `0.494 kW` to `0.434 kW`, and mean bias from `-0.162 kW` to `-0.005 kW` compared with the previous defaults.
+
 ## Actuals and Accuracy Metrics
 
 Actuals can be stored as a daily total, 24 hourly values, or both.

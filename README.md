@@ -140,7 +140,7 @@ npm test
 - Source physical-model calibration note: Open-Meteo forecast-vs-actual history through `2026-05-29`
 - Production model selection period: 129 paired source dates through `2026-09-25`
 - Production model validation target: hourly actuals capped at `6.1 kWh` to ignore unforecastable above-curtailment generation
-- Daily household consumption: about `10 kWh/day` by default
+- Daily household consumption: `14.03 kWh/day` by default, calibrated to recorded EcoFlow load history
 - Avoided import price: `0.30 EUR/kWh`
 - Feed-in tariff: `0.0778 EUR/kWh`
 

@@ -1,4 +1,4 @@
-import { CALIBRATION, CLOUD_RESPONSE, DEFAULTS, LOCATION, ROOFTOP_PROFILE } from "./config.js";
+import { CALIBRATION, CLOUD_RESPONSE, DEFAULTS, LOCATION, ROOFTOP_PROFILE } from "./config.js?v=20260926-load";
 import { clamp, dayOfYear, formatDay, toRad, valueAt } from "./utils.js";
 
 let calibrationScaleCache = null;
@@ -165,12 +165,12 @@ export function sumHours(hours) {
 /**
  * Synthetic household load profile in kWh/h.
  * Inputs are three sliders: base demand, daytime extra demand, and evening extra demand.
+ * The simple time bands and defaults are calibrated to local EcoFlow load history.
  */
 export function householdLoad(hour, settings = DEFAULTS) {
   let load = settings.baseLoad;
-  if (hour >= 8 && hour < 18) load += settings.dayLoad;
+  if (hour >= 9 && hour < 18) load += settings.dayLoad;
   if (hour >= 18 && hour < 23) load += settings.eveningLoad;
-  if (hour >= 6 && hour < 8) load += settings.dayLoad * 0.45;
   return load;
 }
 

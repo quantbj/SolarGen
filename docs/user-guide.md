@@ -68,10 +68,10 @@ Money inputs:
 Home load inputs:
 
 - `Base load`: constant load every hour, day and night.
-- `Daytime extra`: additional load from 08:00 to 18:00, with a partial morning ramp from 06:00 to 08:00.
+- `Daytime extra`: additional load from 09:00 to 18:00.
 - `Evening extra`: additional load from 18:00 to 23:00 for higher evening consumption.
 
-The default load profile assumes about `10 kWh/day`: `0.20 kW` base load, `0.20 kW` daytime extra, and `0.60 kW` evening extra.
+The default load profile is calibrated to recorded EcoFlow household-load history from May 17 through September 26, 2026. It assumes `14.03 kWh/day`: `0.46 kW` base load, `0.21 kW` daytime extra, and `0.22 kW` evening extra.
 
 ## Tariff Assumption
 

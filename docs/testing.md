@@ -9,8 +9,8 @@ Covered behavior:
 - clear-sky irradiance is zero at night and higher at midday
 - cloud cover reduces fallback irradiance
 - high-cloud low-irradiance recalibration improves the stored cloudy-day underforecast pattern
-- household load profile applies base, morning, daytime, and evening loads
-- default household load totals about 10 kWh/day
+- household load profile applies the calibrated base, daytime, and evening bands
+- default household load totals 14.03 kWh/day
 - rooftop profile suppresses output before 10:00 and after 17:00 as observed in the screenshots
 - high-cloud rooftop profile uses a smoother diffuse-light ramp than clear-day hours
 - a full-sun May 1 profile calibrates to the measured 50.23 kWh day
