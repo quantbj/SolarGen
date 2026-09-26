@@ -90,8 +90,9 @@ The displayed forecast depends on both Open-Meteo and DWD ICON weather data. If 
 The displayed browser forecast is the current production blend:
 
 ```text
-production = 0.73 * Open-Meteo current model
-           + 0.27 * DWD stable model
+uncapped hour = 0.50 * Open-Meteo current hour
+                + 0.50 * DWD stable hour
+forecast hour = min(6.1 kWh, uncapped hour)
 ```
 
 The DWD stable model is:
@@ -102,7 +103,7 @@ DWD stable = 0.25 * DWD current model
            + 4.039 kWh
 ```
 
-The production blend was selected on paired forecast-vs-actual history through June 12, 2026. The underlying physical PV model still uses the May 1, 2026 full-sun screenshot as the clear-sky anchor and includes the calibrated rooftop profile visible in the historical actuals.
+The production blend was selected on 129 paired forecast-vs-actual dates through September 25, 2026. Both the modeled forecastable output and validation target use the 6.1 kWh hourly cap, so random above-cap production from coincident household consumption does not drive the forecast or its error. The uncapped model remains visible as theoretical potential and curtailment. The underlying physical PV model still uses the May 1, 2026 full-sun screenshot as the clear-sky anchor and includes the calibrated rooftop profile visible in the historical actuals.
 
 The local history app uses DWD MOSMIX as its retained DWD source. The public browser app uses DWD ICON through Open-Meteo because it needs a direct JSON API that works from GitHub Pages. Both use the same transfer structure and production blend.
 

@@ -60,7 +60,7 @@ flowchart LR
   C["DWD MOSMIX"] --> B
   B --> D["src/historyForecastCli.mjs"]
   D --> E["src/model.js"]
-  B --> F["Production OM-weighted blend"]
+  B --> F["Hourly-capped production blend"]
   F --> G["SQLite history DB"]
   H["EcoFlow/manual actuals"] --> G
   G --> I["history_app.server"]
@@ -78,8 +78,10 @@ Fetches Open-Meteo and DWD MOSMIX forecasts, converts each source to the local s
 Production model:
 
 ```text
-production = 0.73 * OM_current_physical
-           + 0.27 * DWD_stable
+uncapped_hour = 0.50 * OM_current_hour
+              + 0.50 * DWD_stable_hour
+forecast_hour = min(6.1 kWh, uncapped_hour)
+production = sum(forecast_hour)
 ```
 
 with:
@@ -136,8 +138,8 @@ Source physical model:
 Production model:
 
 - DWD stable transfer selected from DWD day-ahead history through `2026-05-29`;
-- production OM-weighted blend selected from paired OM/DWD day-ahead history through `2026-06-12`;
-- stored-history performance on 23 paired actual days: `2.802 kWh` MAE, `3.578 kWh` RMSE, `7.92%` MAPE.
+- hourly-capped production equal blend selected from 129 paired OM/DWD day-ahead dates through `2026-09-25`;
+- stored-history performance using hourly actuals capped at `6.1 kWh`: `5.313 kWh` MAE, `7.502 kWh` RMSE, `14.982%` WAPE.
 
 ## Deployment Boundary
 

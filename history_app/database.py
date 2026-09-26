@@ -8,7 +8,21 @@ from pathlib import Path
 from typing import Any
 
 DB_PATH = Path(__file__).resolve().parents[1] / "data" / "solargen_history.sqlite3"
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
+FORECASTABLE_HOURLY_CAP_KWH = 6.1
+ECOFLOW_TICK_COLUMNS = [
+    "id",
+    "received_at",
+    "device_sn",
+    "device_name",
+    "topic",
+    "source_timestamp",
+    "solar_power_w",
+    "battery_soc_percent",
+    "battery_power_w",
+    "load_power_w",
+    "grid_power_w",
+]
 
 
 def connect(db_path: Path = DB_PATH) -> sqlite3.Connection:
@@ -80,25 +94,9 @@ def init_db(con: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_forecast_runs_target_date ON forecast_runs(target_date);
         CREATE INDEX IF NOT EXISTS idx_forecast_runs_issued_at ON forecast_runs(issued_at);
 
-        CREATE TABLE IF NOT EXISTS ecoflow_ticks (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          received_at TEXT NOT NULL,
-          device_sn TEXT NOT NULL,
-          device_name TEXT NOT NULL DEFAULT '',
-          topic TEXT NOT NULL DEFAULT '',
-          source_timestamp TEXT,
-          solar_power_w REAL,
-          battery_soc_percent REAL,
-          battery_power_w REAL,
-          load_power_w REAL,
-          grid_power_w REAL,
-          raw_json TEXT NOT NULL
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_ecoflow_ticks_received_at ON ecoflow_ticks(received_at);
-        CREATE INDEX IF NOT EXISTS idx_ecoflow_ticks_device_received ON ecoflow_ticks(device_sn, received_at);
         """
     )
+    ensure_ecoflow_tables(con)
     ensure_column(con, "forecast_runs", "simple_forecast_total_kwh", "REAL")
     backfill_simple_forecasts(con)
     con.execute(
@@ -255,8 +253,13 @@ def list_comparisons(con: sqlite3.Connection, visible_sources: set[str] | None =
     result = []
     for row in rows:
         item = dict(row)
-        actual = item.get("actual_total_kwh")
-        if actual is not None:
+        item["forecastable_hourly_cap_kwh"] = FORECASTABLE_HOURLY_CAP_KWH
+        raw_actual = item.get("actual_total_kwh")
+        if raw_actual is not None:
+            forecastable_actual = forecastable_actual_total(con, item["target_date"], raw_actual)
+            item["forecastable_actual_total_kwh"] = round(forecastable_actual, 3)
+            item["ignored_actual_above_cap_kwh"] = round(max(0, raw_actual - forecastable_actual), 3)
+            actual = forecastable_actual
             error = actual - item["forecast_total_kwh"]
             simple_error = actual - item["simple_forecast_total_kwh"] if item.get("simple_forecast_total_kwh") is not None else None
             item["error_kwh"] = round(error, 3)
@@ -265,6 +268,8 @@ def list_comparisons(con: sqlite3.Connection, visible_sources: set[str] | None =
             item["simple_error_pct"] = round((simple_error / item["simple_forecast_total_kwh"]) * 100, 2) if simple_error is not None and item["simple_forecast_total_kwh"] else None
             item.update(hourly_error_metrics(con, item["id"], item["target_date"]))
         else:
+            item["forecastable_actual_total_kwh"] = None
+            item["ignored_actual_above_cap_kwh"] = None
             item["error_kwh"] = None
             item["error_pct"] = None
             item["simple_error_kwh"] = None
@@ -274,6 +279,16 @@ def list_comparisons(con: sqlite3.Connection, visible_sources: set[str] | None =
             item["hourly_points"] = 0
         result.append(item)
     return result
+
+
+def forecastable_actual_total(con: sqlite3.Connection, date: str, raw_total: float) -> float:
+    rows = con.execute(
+        "SELECT generation_kwh FROM actual_hours WHERE date=? ORDER BY hour",
+        (date,),
+    ).fetchall()
+    if not rows:
+        return float(raw_total)
+    return sum(min(float(row["generation_kwh"]), FORECASTABLE_HOURLY_CAP_KWH) for row in rows)
 
 
 def forecast_detail(con: sqlite3.Connection, run_id: int) -> dict[str, Any] | None:
@@ -305,7 +320,10 @@ def hourly_error_metrics(con: sqlite3.Connection, run_id: int, target_date: str)
     ).fetchall()
     if not rows:
         return {"hourly_mae_kwh": None, "hourly_rmse_kwh": None, "hourly_points": 0}
-    errors = [row["generation_kwh"] - row["forecast_kwh"] for row in rows]
+    errors = [
+        min(float(row["generation_kwh"]), FORECASTABLE_HOURLY_CAP_KWH) - row["forecast_kwh"]
+        for row in rows
+    ]
     mae = sum(abs(error) for error in errors) / len(errors)
     rmse = (sum(error * error for error in errors) / len(errors)) ** 0.5
     return {"hourly_mae_kwh": round(mae, 3), "hourly_rmse_kwh": round(rmse, 3), "hourly_points": len(rows)}
@@ -315,6 +333,96 @@ def ensure_column(con: sqlite3.Connection, table: str, column: str, definition: 
     columns = {row["name"] for row in con.execute(f"PRAGMA table_info({table})")}
     if column not in columns:
         con.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
+def ensure_ecoflow_tables(con: sqlite3.Connection) -> None:
+    con.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS ecoflow_ticks (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          received_at TEXT NOT NULL,
+          device_sn TEXT NOT NULL,
+          device_name TEXT NOT NULL DEFAULT '',
+          topic TEXT NOT NULL DEFAULT '',
+          source_timestamp TEXT,
+          solar_power_w REAL,
+          battery_soc_percent REAL,
+          battery_power_w REAL,
+          load_power_w REAL,
+          grid_power_w REAL
+        );
+
+        CREATE TABLE IF NOT EXISTS ecoflow_raw_ticks (
+          ecoflow_tick_id INTEGER PRIMARY KEY REFERENCES ecoflow_ticks(id) ON DELETE CASCADE,
+          stored_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          raw_json_zlib BLOB NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_ecoflow_raw_ticks_stored_at ON ecoflow_raw_ticks(stored_at);
+
+        CREATE TABLE IF NOT EXISTS ecoflow_hourly_generation (
+          local_date TEXT NOT NULL,
+          hour INTEGER NOT NULL CHECK(hour BETWEEN 0 AND 23),
+          timezone_name TEXT NOT NULL,
+          generation_kwh REAL,
+          covered INTEGER NOT NULL CHECK(covered IN (0, 1)),
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (local_date, hour, timezone_name)
+        );
+        """
+    )
+    migrate_ecoflow_ticks_without_raw_json(con)
+    con.executescript(
+        """
+        CREATE INDEX IF NOT EXISTS idx_ecoflow_ticks_received_at ON ecoflow_ticks(received_at);
+        CREATE INDEX IF NOT EXISTS idx_ecoflow_ticks_device_received ON ecoflow_ticks(device_sn, received_at);
+        CREATE INDEX IF NOT EXISTS idx_ecoflow_hourly_generation_date ON ecoflow_hourly_generation(local_date);
+        """
+    )
+
+
+def migrate_ecoflow_ticks_without_raw_json(con: sqlite3.Connection) -> None:
+    columns = {row["name"] for row in con.execute("PRAGMA table_info(ecoflow_ticks)")}
+    if "raw_json" not in columns:
+        return
+    column_list = ", ".join(ECOFLOW_TICK_COLUMNS)
+    con.executescript(
+        """
+        DROP TABLE IF EXISTS ecoflow_ticks_normalized;
+        CREATE TABLE ecoflow_ticks_normalized (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          received_at TEXT NOT NULL,
+          device_sn TEXT NOT NULL,
+          device_name TEXT NOT NULL DEFAULT '',
+          topic TEXT NOT NULL DEFAULT '',
+          source_timestamp TEXT,
+          solar_power_w REAL,
+          battery_soc_percent REAL,
+          battery_power_w REAL,
+          load_power_w REAL,
+          grid_power_w REAL
+        );
+        """
+    )
+    con.execute(
+        f"""
+        INSERT INTO ecoflow_ticks_normalized ({column_list})
+        SELECT {column_list}
+        FROM ecoflow_ticks
+        """
+    )
+    con.executescript(
+        """
+        DROP TABLE ecoflow_ticks;
+        ALTER TABLE ecoflow_ticks_normalized RENAME TO ecoflow_ticks;
+        """
+    )
+    max_id = con.execute("SELECT COALESCE(MAX(id), 0) AS max_id FROM ecoflow_ticks").fetchone()["max_id"]
+    con.execute("DELETE FROM sqlite_sequence WHERE name='ecoflow_ticks_normalized'")
+    con.execute(
+        "INSERT OR REPLACE INTO sqlite_sequence(name, seq) VALUES('ecoflow_ticks', ?)",
+        (max_id,),
+    )
 
 
 def backfill_simple_forecasts(con: sqlite3.Connection) -> None:

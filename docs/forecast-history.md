@@ -40,6 +40,8 @@ This stores three rows for the same issue date and target date:
 
 The history UI displays only `Production blend day-ahead`. Source inputs remain in SQLite for audit and recomputation.
 
+Forecast errors use the forecastable actual total: each stored actual hour is capped at `6.1 kWh` before daily errors are computed. The history UI shows the capped actual, raw actual, and above-cap generation separately so above-curtailment production is visible but not counted against the forecast.
+
 ## Recompute Production Rows After Model Changes
 
 After changing the production blend constants or DWD stable transfer, rebuild stored production rows from retained source inputs:
@@ -69,8 +71,10 @@ The file can contain values separated by spaces, commas, semicolons, or new line
 ## Current Production Model
 
 ```text
-production = 0.73 * OM_current_physical
-           + 0.27 * DWD_stable
+uncapped_hour = 0.50 * OM_current_hour
+              + 0.50 * DWD_stable_hour
+forecast_hour = min(6.1 kWh, uncapped_hour)
+production = sum(forecast_hour)
 ```
 
 with:
@@ -81,7 +85,7 @@ DWD_stable = 0.25 * DWD_current_physical
            + 4.039
 ```
 
-Selection basis: paired day-ahead source history through `2026-06-12`.
+Selection basis: all 129 paired day-ahead source dates with actuals through `2026-09-25`, scored against hourly actuals capped at `6.1 kWh`. Uncapped modeled output is retained in the theoretical and curtailed fields.
 
 ## Stored Data
 

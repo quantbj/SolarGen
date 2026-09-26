@@ -51,12 +51,14 @@ DWD_SIMPLE_CALIBRATION_BASIS = (
     "best stable model blends 25% current model with 75% raw sunshine/rain simple model"
 )
 PRODUCTION_BLEND_SOURCE = "Production blend day-ahead"
-PRODUCTION_BLEND_OM_WEIGHT = 0.73
-PRODUCTION_BLEND_DWD_WEIGHT = 0.27
+PRODUCTION_BLEND_OM_WEIGHT = 0.50
+PRODUCTION_BLEND_DWD_WEIGHT = 0.50
 PRODUCTION_BLEND_BIAS_KWH = 0.0
+PRODUCTION_FORECASTABLE_HOURLY_CAP_KWH = 6.1
 PRODUCTION_BLEND_BASIS = (
-    "paired OM+DWD day-ahead history through 2026-06-12; "
-    "recent errors favoured a modest OM-weighted blend without adding a production bias"
+    "129 paired OM+DWD day-ahead dates through 2026-09-25; "
+    "validation target caps hourly actual generation at 6.1 kWh to ignore unforecastable above-curtailment production; "
+    "equal hourly OM/DWD-stable blend with the same cap selected by time-aware validation"
 )
 
 
@@ -156,12 +158,12 @@ def blend_production_day_ahead(om_snapshot: dict[str, Any], dwd_snapshot: dict[s
 
     om_total = float(om_snapshot["forecast_total_kwh"])
     dwd_simple_total = float(dwd_snapshot["simple_forecast_total_kwh"])
-    production_total = round(max(
+    uncapped_production_total = max(
         0,
         PRODUCTION_BLEND_OM_WEIGHT * om_total +
         PRODUCTION_BLEND_DWD_WEIGHT * dwd_simple_total +
         PRODUCTION_BLEND_BIAS_KWH,
-    ), 3)
+    )
 
     om_hours = sorted(om_snapshot["hours"], key=lambda hour: hour["hour"])
     dwd_hours = sorted(dwd_snapshot["hours"], key=lambda hour: hour["hour"])
@@ -173,34 +175,32 @@ def blend_production_day_ahead(om_snapshot: dict[str, Any], dwd_snapshot: dict[s
         for om_hour, dwd_hour in zip(om_hours, dwd_hours)
     ]
     base_total = sum(blended_base)
-    production_scale = production_total / base_total if base_total > 0 else 0
-    production_hours = [
-        {
+    production_scale = uncapped_production_total / base_total if base_total > 0 else 0
+    production_hours = []
+    for index, om_hour in enumerate(om_hours):
+        theoretical_kwh = round(max(0, blended_base[index] * production_scale), 3)
+        forecast_kwh = round(min(theoretical_kwh, PRODUCTION_FORECASTABLE_HOURLY_CAP_KWH), 3)
+        production_hours.append({
             **om_hour,
-            "forecast_kwh": round(blended_base[index] * production_scale, 3),
-            "delivered_kwh": round(blended_base[index] * production_scale, 3),
-            "theoretical_kwh": round(blended_base[index] * production_scale, 3),
-            "curtailed_kwh": 0,
-        }
-        for index, om_hour in enumerate(om_hours)
-    ]
-    production_hour_total = round(sum(hour["forecast_kwh"] for hour in production_hours), 3)
-    if production_hours and production_hour_total != production_total:
-        adjustment_index = max(range(len(production_hours)), key=lambda index: production_hours[index]["forecast_kwh"])
-        production_hours[adjustment_index]["forecast_kwh"] = round(
-            production_hours[adjustment_index]["forecast_kwh"] + production_total - production_hour_total,
-            3,
-        )
-        production_hours[adjustment_index]["delivered_kwh"] = production_hours[adjustment_index]["forecast_kwh"]
-        production_hours[adjustment_index]["theoretical_kwh"] = production_hours[adjustment_index]["forecast_kwh"]
+            "forecast_kwh": forecast_kwh,
+            "delivered_kwh": forecast_kwh,
+            "theoretical_kwh": theoretical_kwh,
+            "curtailed_kwh": round(theoretical_kwh - forecast_kwh, 3),
+        })
+
+    production_total = round(sum(hour["forecast_kwh"] for hour in production_hours), 3)
+    theoretical_total = round(sum(hour["theoretical_kwh"] for hour in production_hours), 3)
+    curtailed_total = round(sum(hour["curtailed_kwh"] for hour in production_hours), 3)
 
     weather = {
         **om_snapshot.get("weather", {}),
-        "production_model": "OM current plus DWD stable OM-weighted blend",
+        "production_model": "hourly-capped OM current plus DWD stable equal blend",
         "production_model_basis": PRODUCTION_BLEND_BASIS,
         "production_om_weight": PRODUCTION_BLEND_OM_WEIGHT,
         "production_dwd_weight": PRODUCTION_BLEND_DWD_WEIGHT,
         "production_bias_kwh": PRODUCTION_BLEND_BIAS_KWH,
+        "production_forecastable_hourly_cap_kwh": PRODUCTION_FORECASTABLE_HOURLY_CAP_KWH,
+        "production_uncapped_blend_kwh": round(uncapped_production_total, 3),
         "production_om_current_kwh": round(om_total, 3),
         "production_dwd_simple_kwh": round(dwd_simple_total, 3),
         "production_dwd_current_kwh": round(float(dwd_snapshot["forecast_total_kwh"]), 3),
@@ -213,9 +213,9 @@ def blend_production_day_ahead(om_snapshot: dict[str, Any], dwd_snapshot: dict[s
         "weather": weather,
         "forecast_total_kwh": production_total,
         "simple_forecast_total_kwh": production_total,
-        "theoretical_total_kwh": production_total,
+        "theoretical_total_kwh": theoretical_total,
         "delivered_total_kwh": production_total,
-        "curtailed_total_kwh": 0,
+        "curtailed_total_kwh": curtailed_total,
         "hours": production_hours,
     }
 

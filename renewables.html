@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Erneuerbare Stromerzeugung 2024 | SolarGen</title>
+    <link rel="stylesheet" href="styles-renewables.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#mainContent">Zum Inhalt springen</a>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Deutschlandkarte 2024</p>
+          <h1>Erneuerbare Stromerzeugung</h1>
+          <p id="dataStatus" class="subhead">Daten werden geladen.</p>
+        </div>
+        <nav class="top-actions" aria-label="Weitere Ansichten">
+          <a href="index.html">PV-Prognose</a>
+        </nav>
+      </header>
+
+      <main id="mainContent" class="dashboard">
+        <section class="map-workbench" aria-label="Interaktive Deutschlandkarte">
+          <div class="toolbar" aria-label="Karteneinstellungen">
+            <label>
+              <span>Quelle</span>
+              <select id="sourceSelect">
+                <option value="total">Alle Quellen</option>
+                <option value="solar">Solar</option>
+                <option value="wind">Wind</option>
+                <option value="biomass">Biomasse</option>
+                <option value="water">Wasser</option>
+              </select>
+            </label>
+            <label>
+              <span>Kennzahl</span>
+              <select id="metricSelect">
+                <option value="perCapita">kWh pro Einwohner</option>
+                <option value="total">GWh gesamt</option>
+              </select>
+            </label>
+            <label class="district-search">
+              <span>Landkreis</span>
+              <input id="districtSearch" type="search" list="districtOptions" placeholder="Suchen">
+              <datalist id="districtOptions"></datalist>
+            </label>
+          </div>
+
+          <div class="map-grid">
+            <section class="map-panel" aria-label="Karte">
+              <svg id="districtMap" role="img" aria-label="Deutschlandkarte nach Landkreisen"></svg>
+              <div id="mapTooltip" class="map-tooltip" hidden></div>
+            </section>
+
+            <aside class="detail-panel" aria-label="Ausgewählter Landkreis">
+              <div class="detail-head">
+                <p id="selectedState" class="eyebrow">Auswahl</p>
+                <h2 id="selectedName">Deutschland</h2>
+                <p id="selectedMeta" class="detail-meta">Klicken Sie auf einen Landkreis.</p>
+              </div>
+              <div class="metric-grid">
+                <div>
+                  <span>Erzeugung</span>
+                  <strong id="selectedTotal">--</strong>
+                </div>
+                <div>
+                  <span>Pro Einwohner</span>
+                  <strong id="selectedPerCapita">--</strong>
+                </div>
+              </div>
+              <div class="source-bars" id="sourceBars" aria-label="Beiträge nach Quelle"></div>
+              <div class="source-note">
+                <strong>Hinweis zur Datenqualität</strong>
+                <p id="qualityNote">Die Karte nutzt ein geprüftes 2024-Regionalisierungsmodell mit ausgewiesener Datenqualität pro Landkreis.</p>
+              </div>
+            </aside>
+          </div>
+        </section>
+
+        <section class="table-panel" aria-label="Rangliste">
+          <div class="panel-title">
+            <h2 id="rankingTitle">Top-Landkreise</h2>
+            <span id="rankingMeta">Nach kWh pro Einwohner</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col" data-sort="rankMetric"><button type="button">Rang</button></th>
+                  <th scope="col" data-sort="name"><button type="button">Landkreis</button></th>
+                  <th scope="col" data-sort="state"><button type="button">Bundesland</button></th>
+                  <th scope="col" data-sort="solar"><button type="button">Solar</button></th>
+                  <th scope="col" data-sort="wind"><button type="button">Wind</button></th>
+                  <th scope="col" data-sort="biomass"><button type="button">Biomasse</button></th>
+                  <th scope="col" data-sort="water"><button type="button">Wasser</button></th>
+                  <th scope="col" data-sort="perCapita"><button type="button">kWh/EW</button></th>
+                  <th scope="col" data-sort="quality"><button type="button">Qualität</button></th>
+                </tr>
+              </thead>
+              <tbody id="rankingRows"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="sources-panel" aria-label="Quellen">
+          <div class="panel-title">
+            <h2>Quellen und Importpfad</h2>
+            <span id="sourceCount">--</span>
+          </div>
+          <div id="sourceList" class="source-list"></div>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="src/renewables/map.js"></script>
+  </body>
+</html>

@@ -18,7 +18,7 @@ from ecoflow.logging import log
 from ecoflow.mqtt import DEFAULT_KEEPALIVE, MQTTConnectionClosed, MinimalMQTTClient, build_client_id, decode_publish, mqtt_certification
 from ecoflow.ticks import current_snapshot, extract_topic_sn, parse_payload, persist_current_snapshot, select_devices, tick_from_payload
 from history_app.database import connect, init_db
-from history_app.ecoflow_store import save_ecoflow_tick
+from history_app.ecoflow_store import DEFAULT_RAW_RETENTION_DAYS, save_ecoflow_tick
 
 
 DEFAULT_REST_REFRESH_SECONDS = 60
@@ -30,10 +30,22 @@ def subscribe_topics(mqtt: MinimalMQTTClient, topics: list[str]) -> None:
         log(f"subscribed {topic}")
 
 
-def seed_current_state(con, api_client: EcoFlowClient, devices: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+def seed_current_state(
+    con,
+    api_client: EcoFlowClient,
+    devices: list[dict[str, Any]],
+    store_raw: bool | None = None,
+    raw_retention_days: int = DEFAULT_RAW_RETENTION_DAYS,
+) -> dict[str, dict[str, Any]]:
     state_by_sn: dict[str, dict[str, Any]] = {}
     for device in devices:
-        seeded = persist_current_snapshot(con, api_client, device)
+        seeded = persist_current_snapshot(
+            con,
+            api_client,
+            device,
+            store_raw=store_raw,
+            raw_retention_days=raw_retention_days,
+        )
         if seeded:
             row_id, tick = seeded
             state_by_sn[device["sn"]] = tick
@@ -63,12 +75,16 @@ class RestSnapshotRefresher:
         devices: list[dict[str, Any]],
         state_by_sn: dict[str, dict[str, Any]],
         interval_seconds: float,
+        store_raw: bool | None = None,
+        raw_retention_days: int = DEFAULT_RAW_RETENTION_DAYS,
     ):
         self.con = con
         self.api_client = api_client
         self.devices = devices
         self.state_by_sn = state_by_sn
         self.interval_seconds = interval_seconds
+        self.store_raw = store_raw
+        self.raw_retention_days = raw_retention_days
         self.last_refresh = time.monotonic()
 
     def refresh_now(self) -> None:
@@ -76,7 +92,12 @@ class RestSnapshotRefresher:
             tick = current_snapshot(self.api_client, device)
             if tick is None:
                 continue
-            row_id = save_ecoflow_tick(self.con, tick)
+            row_id = save_ecoflow_tick(
+                self.con,
+                tick,
+                store_raw=self.store_raw,
+                raw_retention_days=self.raw_retention_days,
+            )
             self.state_by_sn[tick["device_sn"]] = tick
             print_saved_tick(row_id, tick)
         self.last_refresh = time.monotonic()
@@ -108,6 +129,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         default=DEFAULT_REST_REFRESH_SECONDS,
         help="Poll quota/all this often to fill fields MQTT omits, such as load/grid. Use 0 to disable.",
     )
+    parser.add_argument(
+        "--store-raw",
+        action="store_const",
+        const=True,
+        default=None,
+        help="Store compressed raw quota payloads for short-term debugging.",
+    )
+    parser.add_argument("--raw-retention-days", type=int, default=DEFAULT_RAW_RETENTION_DAYS)
     return parser.parse_args(argv)
 
 
@@ -126,12 +155,26 @@ def main(argv: list[str] | None = None) -> int:
     state_by_sn: dict[str, dict[str, Any]] = {}
 
     if not args.no_seed_current:
-        state_by_sn = seed_current_state(con, api_client, devices)
+        state_by_sn = seed_current_state(
+            con,
+            api_client,
+            devices,
+            store_raw=args.store_raw,
+            raw_retention_days=args.raw_retention_days,
+        )
 
     while True:
         mqtt = None
         try:
-            rest_refresher = RestSnapshotRefresher(con, api_client, devices, state_by_sn, args.rest_refresh_seconds)
+            rest_refresher = RestSnapshotRefresher(
+                con,
+                api_client,
+                devices,
+                state_by_sn,
+                args.rest_refresh_seconds,
+                store_raw=args.store_raw,
+                raw_retention_days=args.raw_retention_days,
+            )
             cert = mqtt_certification(api_client)
             topics = [f"/open/{cert['certificateAccount']}/{device['sn']}/quota" for device in devices]
             mqtt = MinimalMQTTClient(
@@ -153,7 +196,12 @@ def main(argv: list[str] | None = None) -> int:
                 tick = tick_from_payload(topic, parsed, device_names, state_by_sn.get(serial))
                 if tick is None:
                     return
-                row_id = save_ecoflow_tick(con, tick)
+                row_id = save_ecoflow_tick(
+                    con,
+                    tick,
+                    store_raw=args.store_raw,
+                    raw_retention_days=args.raw_retention_days,
+                )
                 state_by_sn[tick["device_sn"]] = tick
                 print_saved_tick(row_id, tick)
                 rest_refresher.refresh_if_due()

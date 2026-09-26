@@ -1,12 +1,13 @@
 import sqlite3
 import unittest
+import zlib
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from history_app.cli import recompute_production_forecasts
 from history_app.database import forecast_detail, hourly_error_metrics, init_db, list_comparisons, parse_hourly_values, parse_number, save_actual, save_forecast_run, simple_forecast_total
 from history_app.ecoflow_store import list_ecoflow_ticks, save_ecoflow_tick
-from history_app.forecast_model import LOCATION, PRODUCTION_BLEND_BIAS_KWH, PRODUCTION_BLEND_DWD_WEIGHT, PRODUCTION_BLEND_OM_WEIGHT, PRODUCTION_BLEND_SOURCE, blend_production_day_ahead, build_dwd_mosmix_url, build_forecast_url, capture_day_ahead_forecast, capture_dwd_day_ahead_forecast, capture_dwd_same_day_forecast, capture_production_day_ahead_forecasts, capture_same_day_forecast, compose_dwd_same_day_forecast, dwd_mosmix_xml_to_open_meteo
+from history_app.forecast_model import LOCATION, PRODUCTION_BLEND_DWD_WEIGHT, PRODUCTION_BLEND_OM_WEIGHT, PRODUCTION_BLEND_SOURCE, PRODUCTION_FORECASTABLE_HOURLY_CAP_KWH, blend_production_day_ahead, build_dwd_mosmix_url, build_forecast_url, capture_day_ahead_forecast, capture_dwd_day_ahead_forecast, capture_dwd_same_day_forecast, capture_production_day_ahead_forecasts, capture_same_day_forecast, compose_dwd_same_day_forecast, dwd_mosmix_xml_to_open_meteo
 from xml.etree import ElementTree
 
 
@@ -81,9 +82,14 @@ class HistoryAppTest(unittest.TestCase):
         self.assertEqual(len(production["hours"]), 24)
         self.assertTrue(all(hour["forecast_kwh"] >= 0 for hour in production["hours"]))
         self.assertEqual(production["simple_forecast_total_kwh"], production["forecast_total_kwh"])
-        self.assertGreater(production["forecast_total_kwh"], min(om_snapshot["forecast_total_kwh"], dwd_snapshot["simple_forecast_total_kwh"]))
-        self.assertLess(production["forecast_total_kwh"], max(om_snapshot["forecast_total_kwh"], dwd_snapshot["simple_forecast_total_kwh"]) + 1)
-        self.assertEqual(production["weather"]["production_model"], "OM current plus DWD stable OM-weighted blend")
+        self.assertGreater(production["theoretical_total_kwh"], min(om_snapshot["forecast_total_kwh"], dwd_snapshot["simple_forecast_total_kwh"]))
+        self.assertLess(production["theoretical_total_kwh"], max(om_snapshot["forecast_total_kwh"], dwd_snapshot["simple_forecast_total_kwh"]) + 1)
+        self.assertEqual(production["weather"]["production_model"], "hourly-capped OM current plus DWD stable equal blend")
+        self.assertTrue(all(
+            hour["forecast_kwh"] <= PRODUCTION_FORECASTABLE_HOURLY_CAP_KWH
+            for hour in production["hours"]
+        ))
+        self.assertGreaterEqual(production["theoretical_total_kwh"], production["forecast_total_kwh"])
 
     def test_recompute_production_forecasts_rebuilds_from_stored_inputs(self):
         con = sqlite3.connect(":memory:")
@@ -101,12 +107,15 @@ class HistoryAppTest(unittest.TestCase):
 
         result = recompute_production_forecasts(con)
         [production] = [row for row in list_comparisons(con) if row["source"] == PRODUCTION_BLEND_SOURCE]
-        expected = round(
-            PRODUCTION_BLEND_OM_WEIGHT * om_snapshot["forecast_total_kwh"]
-            + PRODUCTION_BLEND_DWD_WEIGHT * dwd_snapshot["simple_forecast_total_kwh"]
-            + PRODUCTION_BLEND_BIAS_KWH,
-            3,
-        )
+        dwd_scale = dwd_snapshot["simple_forecast_total_kwh"] / dwd_snapshot["forecast_total_kwh"]
+        expected = round(sum(
+            min(
+                PRODUCTION_FORECASTABLE_HOURLY_CAP_KWH,
+                PRODUCTION_BLEND_OM_WEIGHT * om_hour["forecast_kwh"]
+                + PRODUCTION_BLEND_DWD_WEIGHT * dwd_hour["forecast_kwh"] * dwd_scale,
+            )
+            for om_hour, dwd_hour in zip(om_snapshot["hours"], dwd_snapshot["hours"])
+        ), 3)
 
         self.assertEqual(result["recomputed"], 1)
         self.assertEqual(production["forecast_total_kwh"], expected)
@@ -126,8 +135,10 @@ class HistoryAppTest(unittest.TestCase):
 
         [comparison] = list_comparisons(con)
         detail = forecast_detail(con, run_id)
+        expected_forecastable_actual = round(sum(min(value, 6.1) for value in hourly_actual), 3)
 
         self.assertEqual(comparison["actual_total_kwh"], round(sum(hourly_actual), 3))
+        self.assertEqual(comparison["forecastable_actual_total_kwh"], expected_forecastable_actual)
         self.assertEqual(comparison["simple_forecast_total_kwh"], snapshot["simple_forecast_total_kwh"])
         self.assertLess(comparison["error_kwh"], 0)
         self.assertIsNotNone(comparison["simple_error_kwh"])
@@ -136,6 +147,30 @@ class HistoryAppTest(unittest.TestCase):
         self.assertEqual(detail["run"]["id"], run_id)
         self.assertEqual(len(detail["hours"]), 24)
         self.assertEqual(len(detail["actual_hours"]), 24)
+
+    def test_comparison_metrics_ignore_above_cap_hourly_actuals(self):
+        con = sqlite3.connect(":memory:")
+        con.row_factory = sqlite3.Row
+        con.execute("PRAGMA foreign_keys = ON")
+        init_db(con)
+        snapshot = capture_day_ahead_forecast(
+            now=datetime(2026, 5, 3, 8, tzinfo=ZoneInfo(LOCATION["timezone"])),
+            forecast=sample_forecast("2026-05-03", "2026-05-04"),
+        )
+        save_forecast_run(con, snapshot)
+        hourly_actual = [0.0] * 24
+        hourly_actual[12] = 7.5
+        save_actual(con, "2026-05-04", None, hourly_actual, source="manual")
+
+        [comparison] = list_comparisons(con)
+
+        self.assertEqual(comparison["actual_total_kwh"], 7.5)
+        self.assertEqual(comparison["forecastable_actual_total_kwh"], 6.1)
+        self.assertEqual(comparison["ignored_actual_above_cap_kwh"], 1.4)
+        self.assertAlmostEqual(
+            comparison["error_kwh"],
+            round(6.1 - comparison["forecast_total_kwh"], 3),
+        )
 
     def test_simple_forecast_total_uses_sunshine_and_daylight_rain(self):
         weather = {"sunshine_duration": 8 * 3600}
@@ -206,6 +241,40 @@ class HistoryAppTest(unittest.TestCase):
         self.assertAlmostEqual(ticks["summary"]["generation_kwh"], 0.05, places=3)
         self.assertAlmostEqual(ticks["hourly_generation_kwh"][10], 0.05, places=3)
         self.assertIsNone(ticks["hourly_generation_kwh"][9])
+
+    def test_ecoflow_tick_stores_normalized_values_without_raw_payload_by_default(self):
+        con = sqlite3.connect(":memory:")
+        con.row_factory = sqlite3.Row
+        con.execute("PRAGMA foreign_keys = ON")
+        init_db(con)
+
+        row_id = save_ecoflow_tick(con, {
+            "received_at": "2026-05-17T08:00:00+00:00",
+            "device_sn": "HJ31",
+            "solar_power_w": 1200,
+            "raw": {"large": "payload"},
+        })
+
+        columns = {row["name"] for row in con.execute("PRAGMA table_info(ecoflow_ticks)")}
+        self.assertNotIn("raw_json", columns)
+        self.assertEqual(con.execute("SELECT COUNT(*) FROM ecoflow_raw_ticks").fetchone()[0], 0)
+        self.assertEqual(con.execute("SELECT solar_power_w FROM ecoflow_ticks WHERE id=?", (row_id,)).fetchone()[0], 1200)
+
+    def test_ecoflow_tick_can_store_compressed_raw_payload_for_debugging(self):
+        con = sqlite3.connect(":memory:")
+        con.row_factory = sqlite3.Row
+        con.execute("PRAGMA foreign_keys = ON")
+        init_db(con)
+
+        row_id = save_ecoflow_tick(con, {
+            "received_at": "2026-05-17T08:00:00+00:00",
+            "device_sn": "HJ31",
+            "solar_power_w": 1200,
+            "raw": {"large": "payload"},
+        }, store_raw=True)
+
+        raw_row = con.execute("SELECT raw_json_zlib FROM ecoflow_raw_ticks WHERE ecoflow_tick_id=?", (row_id,)).fetchone()
+        self.assertEqual(zlib.decompress(raw_row["raw_json_zlib"]).decode("utf-8"), '{"large": "payload"}')
 
     def test_history_url_uses_shared_model_settings(self):
         url = build_forecast_url({"tilt": 42}, forecast_days=2)

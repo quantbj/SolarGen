@@ -2,11 +2,13 @@
 
 SolarGen forecasts rooftop PV production, self-consumption savings, and German EEG feed-in revenue for a 10 kWp south-facing rooftop system in OHZ / Osterholz-Scharmbeck.
 
-The displayed forecast uses the current production model:
+The displayed forecast blends the sources hourly and caps forecastable output at the observed curtailment limit:
 
 ```text
-production = 0.73 * Open-Meteo current physical model
-           + 0.27 * DWD stable model
+uncapped_hour = 0.50 * Open-Meteo current hour
+              + 0.50 * DWD stable hour
+forecast_hour = min(6.1 kWh, uncapped_hour)
+production = sum(forecast_hour)
 ```
 
 with:
@@ -82,6 +84,22 @@ python3 -m history_app.cli recompute-production
 
 The database lives at `data/solargen_history.sqlite3` and is ignored by git.
 
+## Laptop Telemetry
+
+Run the local CPU, memory, disk, thermal, and battery dashboard:
+
+```sh
+npm run telemetry
+```
+
+Open `http://127.0.0.1:4190`. A sample is stored locally every five seconds in
+`data/telemetry.sqlite3`; samples older than 30 days are removed automatically.
+
+macOS does not expose CPU temperature to an unprivileged process. The dashboard
+always reports the system thermal-pressure signal and battery temperature. To add
+a CPU temperature reading, install a compatible helper such as `osx-cpu-temp`, or
+set `TELEMETRY_TEMPERATURE_COMMAND` to a command that prints a Celsius value.
+
 ## Documentation
 
 - [User guide](docs/user-guide.md)
@@ -120,7 +138,8 @@ npm test
 - Feed-in cap: `6 kW`
 - Clear-sky anchor day: `50.23 kWh` on `2026-05-01`
 - Source physical-model calibration note: Open-Meteo forecast-vs-actual history through `2026-05-29`
-- Production model selection period: paired source history through `2026-06-12`
+- Production model selection period: 129 paired source dates through `2026-09-25`
+- Production model validation target: hourly actuals capped at `6.1 kWh` to ignore unforecastable above-curtailment generation
 - Daily household consumption: about `10 kWh/day` by default
 - Avoided import price: `0.30 EUR/kWh`
 - Feed-in tariff: `0.0778 EUR/kWh`
@@ -158,4 +177,15 @@ Poll continuously:
 
 ```sh
 npm run ecoflow:poll
+```
+
+Continuous polling defaults to one API snapshot per 60 seconds and stores only normalized tick
+fields in `ecoflow_ticks`. To temporarily keep compressed raw EcoFlow payloads for debugging,
+run the collector with `--store-raw`; those payloads are written to `ecoflow_raw_ticks` and
+pruned after 14 days by default.
+
+Compact an existing history database after changing storage policy:
+
+```sh
+python3 scripts/compact_history_db.py --replace
 ```

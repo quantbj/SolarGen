@@ -13,6 +13,7 @@ import {
 import {
   PRODUCTION_BLEND_BIAS_KWH,
   PRODUCTION_DWD_WEIGHT,
+  PRODUCTION_FORECASTABLE_HOURLY_CAP_KWH,
   PRODUCTION_OM_WEIGHT,
   blendProductionForecastDays,
   dwdStableForecastTotal
@@ -290,9 +291,33 @@ test("production blend combines Open-Meteo current and DWD stable transfer", () 
     PRODUCTION_DWD_WEIGHT * dwdStableForecastTotal(dwdDay) +
     PRODUCTION_BLEND_BIAS_KWH;
 
-  assert.ok(Math.abs(production.pv - expectedTotal) < 0.000001);
+  assert.ok(Math.abs(production.theoreticalPv - expectedTotal) < 0.000001);
+  assert.ok(production.pv <= production.theoreticalPv);
   assert.ok(production.hours.every(hour => hour.pv >= 0));
-  assert.equal(production.sourceModel, "Production OM-weighted blend");
+  assert.equal(production.sourceModel, "Production hourly-capped equal blend");
+});
+
+test("production blend caps forecastable hourly generation and preserves theoretical PV", () => {
+  const omDay = simulateForecast(oneDayForecast({
+    irradianceByHour: hour => (hour >= 11 && hour <= 14 ? 1800 : 0),
+    date: "2026-06-01"
+  }), { ...noLoadSettings(), feedCap: 20 })[0];
+  const dwdDay = simulateForecast(oneDayForecast({
+    irradianceByHour: hour => (hour >= 11 && hour <= 14 ? 1800 : 0),
+    date: "2026-06-01",
+    daily: { sunshine_duration: 14 * 3600 }
+  }), { ...noLoadSettings(), feedCap: 20 })[0];
+
+  const [production] = blendProductionForecastDays(
+    [omDay],
+    [dwdDay],
+    { ...noLoadSettings(), feedCap: 20 }
+  );
+
+  assert.ok(production.hours.every(hour => hour.pv <= PRODUCTION_FORECASTABLE_HOURLY_CAP_KWH));
+  assert.ok(production.theoreticalPv > production.pv);
+  assert.ok(production.curtailed > 0);
+  assert.equal(round(production.theoreticalPv), round(production.pv + production.curtailed));
 });
 
 test("history capture selects the day-ahead forecast and serializes hourly values", () => {

@@ -4,15 +4,17 @@ import { householdLoad, sumHours } from "./model.js";
 export const DWD_STABLE_CURRENT_WEIGHT = 0.25;
 export const DWD_STABLE_RAW_WEIGHT = 0.75;
 export const DWD_STABLE_BIAS_KWH = 4.039;
-export const PRODUCTION_OM_WEIGHT = 0.73;
-export const PRODUCTION_DWD_WEIGHT = 0.27;
+export const PRODUCTION_OM_WEIGHT = 0.50;
+export const PRODUCTION_DWD_WEIGHT = 0.50;
 export const PRODUCTION_BLEND_BIAS_KWH = 0.0;
+export const PRODUCTION_FORECASTABLE_HOURLY_CAP_KWH = 6.1;
 
 /**
  * Combine simulated Open-Meteo and DWD forecast days into the production forecast.
  * The daily total uses the same transfer structure as the local history app:
- *   0.73 * OM current + 0.27 * DWD stable
+ *   min(6.1 kWh, 0.50 * OM current hour + 0.50 * DWD stable hour)
  * where DWD stable is a blend of the DWD physical model and the sunshine/rain model.
+ * The uncapped blend remains available as theoretical PV and curtailment.
  */
 export function blendProductionForecastDays(openMeteoDays, dwdDays, settings = DEFAULTS) {
   const count = Math.min(openMeteoDays.length, dwdDays.length);
@@ -49,15 +51,19 @@ export function blendProductionForecastDays(openMeteoDays, dwdDays, settings = D
       };
     });
 
-    const targetTotal =
+    const uncappedTargetTotal =
       PRODUCTION_OM_WEIGHT * omDay.pv +
       PRODUCTION_DWD_WEIGHT * dwdStableTotal +
       PRODUCTION_BLEND_BIAS_KWH;
-    scaleHoursToTotal(baseHours, targetTotal);
+    scaleHoursToTotal(baseHours, uncappedTargetTotal);
+    baseHours.forEach(hour => {
+      hour.theoreticalPv = hour.pv;
+      hour.pv = Math.min(hour.pv, PRODUCTION_FORECASTABLE_HOURLY_CAP_KWH);
+    });
 
     const hours = baseHours.map(hour => {
-      const curtailed = Math.max(0, hour.pv - settings.feedCap);
-      const deliveredPv = hour.pv - curtailed;
+      const deliveredPv = Math.min(hour.pv, settings.feedCap);
+      const curtailed = Math.max(0, hour.theoreticalPv - deliveredPv);
       const load = householdLoad(hour.hour, settings);
       const direct = Math.min(deliveredPv, load);
       let remainingLoad = load - direct;
@@ -92,11 +98,13 @@ export function blendProductionForecastDays(openMeteoDays, dwdDays, settings = D
     const totals = sumHours(hours);
     blended.push({
       ...omDay,
-      sourceModel: "Production OM-weighted blend",
+      sourceModel: "Production hourly-capped equal blend",
       sourceOpenMeteoTotal: omDay.pv,
       sourceDwdStableTotal: dwdStableTotal,
       sourceDwdCurrentTotal: dwdDay.pv,
       sourceDwdRawTotal: dwdRawSunshineRainTotal(dwdDay),
+      sourceUncappedBlendTotal: uncappedTargetTotal,
+      forecastableHourlyCap: PRODUCTION_FORECASTABLE_HOURLY_CAP_KWH,
       hours,
       ...totals,
       savings: totals.selfConsumed * settings.price,

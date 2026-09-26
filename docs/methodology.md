@@ -93,31 +93,35 @@ DWD_stable = 0.25 * DWD_current_physical
            + 4.039
 ```
 
-Production blend:
+Production blend and forecastable output:
 
 ```text
-production = 0.73 * OM_current_physical
-           + 0.27 * DWD_stable
+uncapped_hour = 0.50 * OM_current_hour
+              + 0.50 * DWD_stable_hour
+forecast_hour = min(6.1 kWh, uncapped_hour)
+production = sum(forecast_hour)
 ```
 
-There is no production-blend bias term in the current model.
+There is no production-blend bias term or fitted production parameter in the current model. The uncapped blend remains available as theoretical output; the difference is reported as curtailment.
 
-Selection basis: paired Open-Meteo and DWD day-ahead forecast history with actuals through `2026-06-12`. Recent post-`2026-06-05` errors showed the equal blend was being pulled low by the DWD stable leg. A small reweighting toward Open-Meteo improved the full retained sample without adding a bias term, which did not generalize in leave-one-out checks.
+Selection basis: all 129 available paired Open-Meteo and DWD day-ahead forecast dates with actuals from `2026-05-14` through `2026-09-25`. Validation uses a forecastable actual target built from hourly actuals capped at `6.1 kWh`; energy above that level is ignored because it depends on random coincident self-consumption rather than weather-driven PV availability.
 
-Current stored-history performance for the recalibrated blend on 30 paired actual days:
+The selection compared fixed blends, bias and affine recalibrations, source-transfer changes, hourly cap structures, and scikit-learn Ridge, Lasso, ElasticNet, Huber, RandomForest, and GradientBoosting models. Huber regression had the lowest leave-one-date-out MAE (`5.243 kWh`) but used 12 fitted degrees and tied the zero-parameter hourly-capped blend on chronological rolling MAE (`5.736 kWh`). The selection rule chooses the fewest fitted parameters within one standard error of the best rolling result, then breaks equal-complexity ties by rolling and leave-one-out MAE.
+
+Current stored-history performance for the selected hourly-capped equal blend on 129 paired actual days:
 
 | Metric | Value |
 |---|---:|
-| MAE | `3.861 kWh` |
-| RMSE | `5.186 kWh` |
-| Bias | `1.185 kWh` |
-| MAPE | `10.69%` |
+| MAE | `5.313 kWh` |
+| RMSE | `7.502 kWh` |
+| Bias | `-0.631 kWh` |
+| WAPE | `14.982%` |
 
 ## Hourly Production Allocation
 
-The production blend is fitted at daily-total level. For hourly charts, SolarGen blends the Open-Meteo hourly curve with the DWD hourly curve after scaling the DWD hourly curve to its stable daily total. The blended hourly curve is then scaled so that the hourly sum exactly equals the production daily total.
+SolarGen scales the DWD hourly curve to its stable daily total, then blends it with the Open-Meteo hourly curve. Each blended hour is capped at `6.1 kWh` for forecastable production. The uncapped hourly value is retained as theoretical production so the above-cap amount remains visible.
 
-The rounding adjustment is applied to the largest positive production hour so that no night hour becomes negative.
+The production daily total is the sum of the capped hourly values, avoiding a daily cap that would distort the generation shape.
 
 ## Curtailment and Delivered PV
 

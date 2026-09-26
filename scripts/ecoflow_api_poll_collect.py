@@ -17,13 +17,13 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from history_app.database import connect, init_db
-from history_app.ecoflow_store import save_ecoflow_tick
+from history_app.ecoflow_store import DEFAULT_RAW_RETENTION_DAYS, save_ecoflow_tick
 from ecoflow.client import EcoFlowClient, load_credentials
 from ecoflow.logging import format_percent, format_watts, log
 from ecoflow.ticks import current_snapshot, select_devices
 
 
-DEFAULT_INTERVAL_SECONDS = 5.0
+DEFAULT_INTERVAL_SECONDS = 60.0
 
 
 def print_saved_snapshot(row_id: int, tick: dict[str, Any]) -> None:
@@ -45,7 +45,13 @@ def print_saved_snapshot(row_id: int, tick: dict[str, Any]) -> None:
     )
 
 
-def poll_once(con, api_client: EcoFlowClient, devices: list[dict[str, Any]]) -> list[tuple[int, dict[str, Any]]]:
+def poll_once(
+    con,
+    api_client: EcoFlowClient,
+    devices: list[dict[str, Any]],
+    store_raw: bool | None = None,
+    raw_retention_days: int = DEFAULT_RAW_RETENTION_DAYS,
+) -> list[tuple[int, dict[str, Any]]]:
     """Read and save one REST quota snapshot for every selected device."""
     saved = []
     for device in devices:
@@ -53,7 +59,7 @@ def poll_once(con, api_client: EcoFlowClient, devices: list[dict[str, Any]]) -> 
         if tick is None:
             log(f"no known current fields returned for {device.get('sn', 'unknown')}", error=True)
             continue
-        row_id = save_ecoflow_tick(con, tick)
+        row_id = save_ecoflow_tick(con, tick, store_raw=store_raw, raw_retention_days=raw_retention_days)
         saved.append((row_id, tick))
         print_saved_snapshot(row_id, tick)
     return saved
@@ -67,6 +73,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--interval", type=float, default=DEFAULT_INTERVAL_SECONDS, help="Seconds between API polls.")
     parser.add_argument("--retry-delay", type=float, default=10.0, help="Seconds to wait after an API error.")
     parser.add_argument("--once", action="store_true", help="Poll once and exit.")
+    parser.add_argument(
+        "--store-raw",
+        action="store_const",
+        const=True,
+        default=None,
+        help="Store compressed raw quota payloads for short-term debugging.",
+    )
+    parser.add_argument("--raw-retention-days", type=int, default=DEFAULT_RAW_RETENTION_DAYS)
     return parser.parse_args(argv)
 
 
@@ -93,7 +107,7 @@ def main(argv: list[str] | None = None) -> int:
     while True:
         started = time.monotonic()
         try:
-            poll_once(con, api_client, devices)
+            poll_once(con, api_client, devices, store_raw=args.store_raw, raw_retention_days=args.raw_retention_days)
         except KeyboardInterrupt:
             return 0
         except Exception as exc:

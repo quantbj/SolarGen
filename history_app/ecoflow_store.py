@@ -1,13 +1,23 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
+import zlib
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
+DEFAULT_RAW_RETENTION_DAYS = 14
+RAW_STORAGE_ENV = "SOLARGEN_ECOFLOW_STORE_RAW"
 
-def save_ecoflow_tick(con: sqlite3.Connection, tick: dict[str, Any]) -> int:
+
+def save_ecoflow_tick(
+    con: sqlite3.Connection,
+    tick: dict[str, Any],
+    store_raw: bool | None = None,
+    raw_retention_days: int = DEFAULT_RAW_RETENTION_DAYS,
+) -> int:
     received_at = tick.get("received_at") or datetime.now(timezone.utc).isoformat(timespec="seconds")
     raw = tick.get("raw") or {}
     with con:
@@ -15,9 +25,8 @@ def save_ecoflow_tick(con: sqlite3.Connection, tick: dict[str, Any]) -> int:
             """
             INSERT INTO ecoflow_ticks (
               received_at, device_sn, device_name, topic, source_timestamp,
-              solar_power_w, battery_soc_percent, battery_power_w, load_power_w,
-              grid_power_w, raw_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              solar_power_w, battery_soc_percent, battery_power_w, load_power_w, grid_power_w
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 received_at,
@@ -30,10 +39,35 @@ def save_ecoflow_tick(con: sqlite3.Connection, tick: dict[str, Any]) -> int:
                 tick.get("battery_power_w"),
                 tick.get("load_power_w"),
                 tick.get("grid_power_w"),
-                json.dumps(raw, sort_keys=True),
             ),
         )
-    return int(cursor.lastrowid)
+        row_id = int(cursor.lastrowid)
+        if should_store_raw_tick(store_raw) and raw:
+            con.execute(
+                """
+                INSERT OR REPLACE INTO ecoflow_raw_ticks(ecoflow_tick_id, raw_json_zlib)
+                VALUES (?, ?)
+                """,
+                (row_id, zlib.compress(json.dumps(raw, sort_keys=True).encode("utf-8"), 6)),
+            )
+            prune_ecoflow_raw_ticks(con, raw_retention_days)
+    return row_id
+
+
+def should_store_raw_tick(store_raw: bool | None) -> bool:
+    if store_raw is not None:
+        return store_raw
+    return os.environ.get(RAW_STORAGE_ENV, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def prune_ecoflow_raw_ticks(con: sqlite3.Connection, retention_days: int = DEFAULT_RAW_RETENTION_DAYS) -> None:
+    if retention_days <= 0:
+        con.execute("DELETE FROM ecoflow_raw_ticks")
+        return
+    con.execute(
+        "DELETE FROM ecoflow_raw_ticks WHERE stored_at < datetime('now', ?)",
+        (f"-{retention_days} days",),
+    )
 
 
 def list_ecoflow_ticks(con: sqlite3.Connection, day: str | None = None, timezone_name: str = "Europe/Berlin") -> dict[str, Any]:
@@ -111,6 +145,40 @@ def ecoflow_hourly_generation(rows: list[dict[str, Any]], timezone_name: str) ->
             allocate_power_interval(hourly_wh, covered, previous["time"], interval_end, float(previous["power"]), tz)
         previous = {"time": current_time, "power": row.get("solar_power_w")}
     return [round(value / 1000.0, 3) if covered[index] else None for index, value in enumerate(hourly_wh)]
+
+
+def save_ecoflow_hourly_generation(
+    con: sqlite3.Connection,
+    day: str,
+    timezone_name: str,
+    hourly_generation_kwh: list[float | None],
+) -> None:
+    validate_date(day)
+    if len(hourly_generation_kwh) != 24:
+        raise ValueError("EcoFlow hourly generation must contain exactly 24 values.")
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    con.executemany(
+        """
+        INSERT INTO ecoflow_hourly_generation(
+          local_date, hour, timezone_name, generation_kwh, covered, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(local_date, hour, timezone_name) DO UPDATE SET
+          generation_kwh=excluded.generation_kwh,
+          covered=excluded.covered,
+          updated_at=excluded.updated_at
+        """,
+        [
+            (
+                day,
+                hour,
+                timezone_name,
+                round(float(value), 3) if value is not None else None,
+                1 if value is not None else 0,
+                now,
+            )
+            for hour, value in enumerate(hourly_generation_kwh)
+        ],
+    )
 
 
 def allocate_power_interval(hourly_wh: list[float], covered: list[bool], start: datetime, end: datetime, power_w: float, tz: ZoneInfo) -> None:

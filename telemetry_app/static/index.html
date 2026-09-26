@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Laptop Health</title>
+    <link rel="stylesheet" href="telemetry.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header>
+        <div>
+          <p class="eyebrow">Local telemetry</p>
+          <h1>Laptop health</h1>
+          <p class="subtitle">A quiet view of the signals that matter during long days.</p>
+        </div>
+        <div class="live"><span></span>Live <time id="lastUpdated">Starting…</time></div>
+      </header>
+
+      <section class="vitals" aria-label="Current system metrics">
+        <article class="metric primary"><div><p>CPU load</p><strong id="cpu">—</strong></div><div class="gauge"><i id="cpuGauge"></i></div><small id="cpuDetail">Waiting for a sample</small></article>
+        <article class="metric"><div><p>Memory</p><strong id="memory">—</strong></div><div class="gauge"><i id="memoryGauge"></i></div><small>Physical memory in use</small></article>
+        <article class="metric"><div><p>Disk space</p><strong id="disk">—</strong></div><div class="gauge"><i id="diskGauge"></i></div><small>Home volume in use</small></article>
+        <article class="metric"><div><p>CPU temperature</p><strong id="cpuTemp">—</strong></div><small id="temperatureNote">Sensor helper not configured</small></article>
+      </section>
+
+      <section class="chart-panel">
+        <div class="panel-head"><div><h2>System load</h2><p id="rangeLabel">Last 24 hours</p></div><select id="range" aria-label="History range"><option value="1">1 hour</option><option value="6">6 hours</option><option value="24" selected>24 hours</option><option value="168">7 days</option></select></div>
+        <div class="legend"><span class="cpu-key">CPU</span><span class="memory-key">Memory</span></div>
+        <svg id="chart" role="img" aria-label="CPU and memory usage over time" viewBox="0 0 960 300" preserveAspectRatio="none"></svg>
+        <p id="emptyChart" class="empty">History will appear as samples are recorded.</p>
+      </section>
+
+      <section class="details">
+        <article><div class="icon thermal">↗</div><div><p>Thermal pressure</p><strong id="thermal">—</strong><small>macOS throttling signal</small></div></article>
+        <article><div class="icon">⇅</div><div><p>Disk activity</p><strong id="diskIo">—</strong><small id="diskIoDetail">Combined disk throughput</small></div></article>
+        <article><div class="icon">⌁</div><div><p>Battery</p><strong id="battery">—</strong><small id="batteryDetail">Waiting for battery data</small></div></article>
+        <article><div class="icon">°</div><div><p>Battery temperature</p><strong id="batteryTemp">—</strong><small>Useful heat indicator while charging</small></div></article>
+      </section>
+
+      <section class="guidance"><h2>What deserves attention</h2><div><p><b>Heat</b><span>Sustained thermal pressure or high temperatures age components fastest.</span></p><p><b>Disk</b><span>Keep roughly 10–15% free so macOS has room for swaps and updates.</span></p><p><b>Battery</b><span>Heat plus long periods at full charge accelerates battery wear.</span></p></div></section>
+    </main>
+    <script type="module" src="telemetry.js"></script>
+  </body>
+</html>

@@ -119,11 +119,17 @@ def quota_source_timestamp(quotas: dict[str, Any]) -> str | None:
     return max(candidates) if candidates else None
 
 
-def persist_current_snapshot(con, client: EcoFlowClient, device: dict[str, Any]) -> tuple[int, dict[str, Any]] | None:
+def persist_current_snapshot(
+    con,
+    client: EcoFlowClient,
+    device: dict[str, Any],
+    store_raw: bool | None = None,
+    raw_retention_days: int = 14,
+) -> tuple[int, dict[str, Any]] | None:
     tick = current_snapshot(client, device)
     if not tick:
         return None
-    return save_ecoflow_tick(con, tick), tick
+    return save_ecoflow_tick(con, tick, store_raw=store_raw, raw_retention_days=raw_retention_days), tick
 
 
 def select_devices(devices: list[dict[str, Any]], serial_numbers: list[str] | None) -> list[dict[str, Any]]:

@@ -13,14 +13,14 @@
 
 \title{SolarGen Production Forecast Model}
 \author{SolarGen}
-\date{Model version: production OM-weighted blend selected on paired history through 2026-06-12}
+\date{Model version: hourly-capped production blend selected through 2026-09-25}
 
 \begin{document}
 \maketitle
 
 \section{Scope}
 
-SolarGen forecasts rooftop photovoltaic generation for a 10 kWp south-facing rooftop array in OHZ / Osterholz-Scharmbeck. The production forecast shown in the browser and in the local history app is an Open-Meteo-weighted blend of an Open-Meteo current physical forecast and a DWD stable forecast.
+SolarGen forecasts rooftop photovoltaic generation for a 10 kWp south-facing rooftop array in OHZ / Osterholz-Scharmbeck. The production forecast shown in the browser and local history app is an equal hourly blend of an Open-Meteo current physical forecast and a DWD stable forecast, capped at the observed 6.1 kWh hourly curtailment level.
 
 The browser app obtains DWD data through the Open-Meteo DWD ICON endpoint. The local history app obtains DWD data from DWD MOSMIX. Both surfaces use the same transfer structure and final production blend.
 
@@ -85,18 +85,7 @@ G^{\mathrm{stable}}_{\mathrm{DWD}}
 
 \section{Production Blend}
 
-The production daily forecast is:
-
-\[
-\boxed{
-G^{\mathrm{prod}}
-=
-0.73 G^{\mathrm{cur}}_{\mathrm{OM}}
-+ 0.27 G^{\mathrm{stable}}_{\mathrm{DWD}}
-}
-\]
-
-There is no production-bias term in the current model.
+There is no production-bias term or fitted production coefficient. The uncapped hourly blend is defined below, then capped at 6.1 kWh to obtain forecastable production. Uncapped output is retained as theoretical potential.
 
 \section{Hourly Allocation}
 
@@ -111,70 +100,72 @@ G^{\mathrm{cur}}_{\mathrm{DWD},h}
 {\sum_{j=0}^{23}G^{\mathrm{cur}}_{\mathrm{DWD},j}}.
 \]
 
-The production hourly curve is:
+The uncapped production hourly curve is:
 
 \[
-G^{\mathrm{prod}}_h
+G^{\mathrm{uncap}}_h
 =
-0.73G^{\mathrm{cur}}_{\mathrm{OM},h}
-+ 0.27\widetilde{G}_{\mathrm{DWD},h}.
+0.50G^{\mathrm{cur}}_{\mathrm{OM},h}
++ 0.50\widetilde{G}_{\mathrm{DWD},h}.
 \]
 
-The curve is then scaled by a small numerical factor if needed so that:
+The curve is scaled by a small numerical factor if needed so that its uncapped total equals the daily source blend. Forecastable hourly and daily production are:
 
 \[
-\sum_{h=0}^{23}G^{\mathrm{prod}}_h = G^{\mathrm{prod}}.
+G^{\mathrm{prod}}_h = \min(6.1, G^{\mathrm{uncap}}_h),
+\qquad
+G^{\mathrm{prod}} = \sum_{h=0}^{23}G^{\mathrm{prod}}_h.
 \]
-
-Any rounding adjustment is applied to the largest positive production hour so that night hours cannot become negative.
 
 \section{Curtailment, Load, Battery, And Value}
 
 The browser app applies the household load, battery, export, and value model to \(G^{\mathrm{prod}}_h\). For each hour:
 
 \[
-G^{\mathrm{curt}}_h = \max(0,\ G^{\mathrm{prod}}_h - F),
+G^{\mathrm{deliv}}_h = \min(G^{\mathrm{prod}}_h, F),
 \]
 
 \[
-G^{\mathrm{deliv}}_h = G^{\mathrm{prod}}_h - G^{\mathrm{curt}}_h,
+G^{\mathrm{curt}}_h = G^{\mathrm{uncap}}_h - G^{\mathrm{deliv}}_h,
 \]
 
 where \(F=6\ \mathrm{kW}\) by default. Delivered PV first covers same-hour household load, then charges the battery, and remaining surplus is exported.
 
 \section{Selection Evidence}
 
-The production model was selected on paired Open-Meteo and DWD day-ahead forecast history with actuals through 2026-06-12.
+The production model was selected on all 129 paired Open-Meteo and DWD day-ahead dates with actuals from 2026-05-14 through 2026-09-25. The validation target caps hourly actual generation at 6.1 kWh so above-curtailment production from coincident household consumption does not drive the fit.
 
 \begin{center}
 \begin{tabular}{lrrrr}
 \toprule
 Model & In-sample MAE & LOO MAE & Rolling MAE & Comment \\
 \midrule
-Equal blend & 3.918 & fixed & 5.010 & recent low bias \\
-OM only & 4.147 & fixed & -- & single source \\
-DWD stable only & 4.567 & fixed & -- & single source \\
-Fitted weight, no bias & 3.861 & 3.945 & 5.208 & selected \\
-Fitted weight plus bias & 3.844 & 4.485 & 5.419 & overfits \\
+Huber capped weather & 4.910 & 5.243 & 5.736 & 12 params \\
+Hourly-capped equal blend & 5.313 & 5.313 & 5.736 & selected \\
+Linear OM+DWD+bias & 5.297 & 5.418 & 5.748 & 3 params \\
+Previous uncapped equal & 5.455 & 5.455 & 5.867 & previous \\
+Old 0.73 blend & 5.541 & 5.541 & 5.985 & older \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-The selected model is not the best in-sample model. It is the smallest recalibration that improves the retained sample while avoiding a bias term that degraded out-of-sample checks.
+The selected model is not the best in-sample or leave-one-out model. Huber regression improves leave-one-out MAE by only 0.070 kWh/day and ties the selected model on chronological rolling MAE while using 12 fitted degrees. The selection rule chooses the fewest fitted parameters within one standard error of the best rolling MAE.
+
+Relative to the previous uncapped equal blend, the selected model improves aggregate leave-one-out MAE from 5.455 to 5.313 kWh and rolling RMSE from 8.529 to 8.025 kWh. The paired bootstrap 95 percent interval for MAE improvement includes zero, and June regresses by 0.504 kWh/day; the gain is therefore modest rather than decisive.
 
 \section{Current Stored-History Accuracy}
 
-After recomputing production rows under the recalibrated blend, the local history database contains 30 paired actual days:
+After recomputing production rows under the hourly-capped equal blend, the local history database contains 129 paired actual days:
 
 \begin{center}
 \begin{tabular}{lr}
 \toprule
 Metric & Value \\
 \midrule
-MAE & 3.861 kWh \\
-RMSE & 5.186 kWh \\
-Bias & 1.185 kWh \\
-MAPE & 10.69 percent \\
+MAE & 5.313 kWh \\
+RMSE & 7.502 kWh \\
+Bias & -0.631 kWh \\
+WAPE & 14.982 percent \\
 \bottomrule
 \end{tabular}
 \end{center}
