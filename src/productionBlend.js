@@ -8,11 +8,12 @@ export const PRODUCTION_OM_WEIGHT = 0.50;
 export const PRODUCTION_DWD_WEIGHT = 0.50;
 export const PRODUCTION_BLEND_BIAS_KWH = 0.0;
 export const PRODUCTION_FORECASTABLE_HOURLY_CAP_KWH = 6.1;
+export const OCTOBER_OM_SCALE = 0.85;
 
 /**
  * Combine simulated Open-Meteo and DWD forecast days into the production forecast.
  * The daily total uses the same transfer structure as the local history app:
- *   min(6.1 kWh, 0.50 * OM current hour + 0.50 * DWD stable hour)
+ *   min(6.1 kWh, OM/DWD seasonal blend hour)
  * where DWD stable is a blend of the DWD physical model and the sunshine/rain model.
  * The uncapped blend remains available as theoretical PV and curtailment.
  */
@@ -24,13 +25,14 @@ export function blendProductionForecastDays(openMeteoDays, dwdDays, settings = D
   for (let index = 0; index < count; index += 1) {
     const omDay = openMeteoDays[index];
     const dwdDay = dwdDays[index];
+    const blend = productionBlendParameters(omDay.date);
     const dwdStableTotal = dwdStableForecastTotal(dwdDay);
     const dwdScale = dwdDay.pv > 0 ? dwdStableTotal / dwdDay.pv : 0;
     const baseHours = omDay.hours.map((omHour, hourIndex) => {
       const dwdHour = dwdDay.hours[hourIndex] || omHour;
       const blendedPv =
-        PRODUCTION_OM_WEIGHT * omHour.pv +
-        PRODUCTION_DWD_WEIGHT * dwdHour.pv * dwdScale;
+        blend.omWeight * omHour.pv +
+        blend.dwdWeight * dwdHour.pv * dwdScale;
       return {
         ...omHour,
         sourceOpenMeteoPv: omHour.pv,
@@ -52,8 +54,8 @@ export function blendProductionForecastDays(openMeteoDays, dwdDays, settings = D
     });
 
     const uncappedTargetTotal =
-      PRODUCTION_OM_WEIGHT * omDay.pv +
-      PRODUCTION_DWD_WEIGHT * dwdStableTotal +
+      blend.omWeight * omDay.pv +
+      blend.dwdWeight * dwdStableTotal +
       PRODUCTION_BLEND_BIAS_KWH;
     scaleHoursToTotal(baseHours, uncappedTargetTotal);
     baseHours.forEach(hour => { hour.theoreticalPv = hour.pv; });
@@ -64,7 +66,8 @@ export function blendProductionForecastDays(openMeteoDays, dwdDays, settings = D
     const totals = sumHours(hours);
     blended.push({
       ...omDay,
-      sourceModel: "Production hourly-capped equal blend",
+      sourceModel: blend.name,
+      sourceModelBasis: blend.basis,
       sourceOpenMeteoTotal: omDay.pv,
       sourceDwdStableTotal: dwdStableTotal,
       sourceDwdCurrentTotal: dwdDay.pv,
@@ -80,6 +83,28 @@ export function blendProductionForecastDays(openMeteoDays, dwdDays, settings = D
   }
 
   return blended;
+}
+
+/**
+ * October's retained 2026 history was markedly wetter and showed a systematic
+ * DWD-stable overestimate.  Keep the normal zero-parameter equal blend outside
+ * October, but use the validated conservative OM-only scale during October.
+ */
+export function productionBlendParameters(date) {
+  if (String(date).slice(5, 7) === "10") {
+    return {
+      omWeight: OCTOBER_OM_SCALE,
+      dwdWeight: 0,
+      name: "Production hourly-capped October OM calibration",
+      basis: "9 complete October 2026 day-ahead dates; OM × 0.85 reduced MAE from 6.971 to 3.982 kWh/day"
+    };
+  }
+  return {
+    omWeight: PRODUCTION_OM_WEIGHT,
+    dwdWeight: PRODUCTION_DWD_WEIGHT,
+    name: "Production hourly-capped equal blend",
+    basis: "equal OM current and DWD stable blend"
+  };
 }
 
 /** Apply the production model's forecastable cap when live source blending is unavailable. */

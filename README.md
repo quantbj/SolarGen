@@ -11,6 +11,10 @@ forecast_hour = min(6.1 kWh, uncapped_hour)
 production = sum(forecast_hour)
 ```
 
+For October, the retained 2026 wet-weather validation selects a conservative
+`0.85 × Open-Meteo` curve instead; the DWD stable transfer is not used in that
+month. Night-time provider hours are always forced to zero.
+
 with:
 
 ```text

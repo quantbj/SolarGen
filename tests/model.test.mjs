@@ -130,6 +130,20 @@ test("high-cloud rooftop profile uses a calibrated diffuse-light ramp", () => {
   assert.ok(cloudyEvening < clearEvening);
 });
 
+test("nighttime hours cannot receive the diffuse dawn floor", () => {
+  const forecast = oneDayForecast({
+    date: "2026-10-20",
+    cloudByHour: () => 100,
+    irradianceByHour: () => 0
+  });
+  forecast.hourly.is_day[5] = 0;
+  forecast.hourly.is_day[6] = 0;
+  const [day] = simulateForecast(forecast, noLoadSettings());
+
+  assert.equal(day.hours.find(hour => hour.hour === 5).pv, 0);
+  assert.equal(day.hours.find(hour => hour.hour === 6).pv, 0);
+});
+
 test("clear full-sun modeled rooftop generation calibrates to the configured production target", () => {
   const forecast = oneDayForecast({
     irradianceByHour: hour => clearSkyPoa("2026-05-01", hour, DEFAULTS.tilt),
@@ -382,7 +396,7 @@ test("history capture selects the day-ahead forecast and serializes hourly value
   assert.equal(snapshot.source, "Open-Meteo day-ahead");
   assert.equal(snapshot.hours.length, 24);
   assert.ok(snapshot.forecast_total_kwh > 0);
-  assert.equal(snapshot.simple_forecast_total_kwh, 34.07);
+  assert.equal(snapshot.simple_forecast_total_kwh, 34.03);
   assert.match(buildHistoryForecastUrl({ tilt: 40 }, 2), /forecast_days=2/);
 });
 

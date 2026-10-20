@@ -55,6 +55,7 @@ PRODUCTION_BLEND_OM_WEIGHT = 0.50
 PRODUCTION_BLEND_DWD_WEIGHT = 0.50
 PRODUCTION_BLEND_BIAS_KWH = 0.0
 PRODUCTION_FORECASTABLE_HOURLY_CAP_KWH = 6.1
+OCTOBER_OM_SCALE = 0.85
 PRODUCTION_BLEND_BASIS = (
     "129 paired OM+DWD day-ahead dates through 2026-09-25; "
     "validation target caps hourly actual generation at 6.1 kWh to ignore unforecastable above-curtailment production; "
@@ -156,24 +157,27 @@ def blend_production_day_ahead(om_snapshot: dict[str, Any], dwd_snapshot: dict[s
     if om_snapshot["target_date"] != dwd_snapshot["target_date"]:
         raise ValueError("OM and DWD production inputs must have the same target date.")
 
-    om_total = float(om_snapshot["forecast_total_kwh"])
+    blend = production_blend_parameters(om_snapshot["target_date"])
+    om_weight = blend["om_weight"]
+    dwd_weight = blend["dwd_weight"]
     dwd_simple_total = float(dwd_snapshot["simple_forecast_total_kwh"])
-    uncapped_production_total = max(
-        0,
-        PRODUCTION_BLEND_OM_WEIGHT * om_total +
-        PRODUCTION_BLEND_DWD_WEIGHT * dwd_simple_total +
-        PRODUCTION_BLEND_BIAS_KWH,
-    )
-
     om_hours = sorted(om_snapshot["hours"], key=lambda hour: hour["hour"])
     dwd_hours = sorted(dwd_snapshot["hours"], key=lambda hour: hour["hour"])
     dwd_current_total = sum(float(hour["forecast_kwh"]) for hour in dwd_hours)
     dwd_hour_scale = dwd_simple_total / dwd_current_total if dwd_current_total > 0 else 0
     blended_base = [
-        PRODUCTION_BLEND_OM_WEIGHT * float(om_hour["forecast_kwh"]) +
-        PRODUCTION_BLEND_DWD_WEIGHT * float(dwd_hour["forecast_kwh"]) * dwd_hour_scale
+        om_weight * daylight_forecast_kwh(om_hour) +
+        dwd_weight * daylight_forecast_kwh(dwd_hour) * dwd_hour_scale
         for om_hour, dwd_hour in zip(om_hours, dwd_hours)
     ]
+    om_total = sum(daylight_forecast_kwh(hour) for hour in om_hours)
+    dwd_simple_total = sum(daylight_forecast_kwh(hour) for hour in dwd_hours) * dwd_hour_scale
+    uncapped_production_total = max(
+        0,
+        om_weight * om_total +
+        dwd_weight * dwd_simple_total +
+        PRODUCTION_BLEND_BIAS_KWH,
+    )
     base_total = sum(blended_base)
     production_scale = uncapped_production_total / base_total if base_total > 0 else 0
     production_hours = []
@@ -194,10 +198,10 @@ def blend_production_day_ahead(om_snapshot: dict[str, Any], dwd_snapshot: dict[s
 
     weather = {
         **om_snapshot.get("weather", {}),
-        "production_model": "hourly-capped OM current plus DWD stable equal blend",
-        "production_model_basis": PRODUCTION_BLEND_BASIS,
-        "production_om_weight": PRODUCTION_BLEND_OM_WEIGHT,
-        "production_dwd_weight": PRODUCTION_BLEND_DWD_WEIGHT,
+        "production_model": blend["name"],
+        "production_model_basis": blend["basis"],
+        "production_om_weight": om_weight,
+        "production_dwd_weight": dwd_weight,
         "production_bias_kwh": PRODUCTION_BLEND_BIAS_KWH,
         "production_forecastable_hourly_cap_kwh": PRODUCTION_FORECASTABLE_HOURLY_CAP_KWH,
         "production_uncapped_blend_kwh": round(uncapped_production_total, 3),
@@ -218,6 +222,33 @@ def blend_production_day_ahead(om_snapshot: dict[str, Any], dwd_snapshot: dict[s
         "curtailed_total_kwh": curtailed_total,
         "hours": production_hours,
     }
+
+
+def production_blend_parameters(target_date: str) -> dict[str, Any]:
+    """Return the seasonally validated production-blend parameters."""
+    if target_date[5:7] == "10":
+        return {
+            "om_weight": OCTOBER_OM_SCALE,
+            "dwd_weight": 0.0,
+            "name": "hourly-capped October OM calibration",
+            "basis": (
+                "9 complete October 2026 day-ahead dates; OM × 0.85 reduced "
+                "MAE from 6.971 to 3.982 kWh/day"
+            ),
+        }
+    return {
+        "om_weight": PRODUCTION_BLEND_OM_WEIGHT,
+        "dwd_weight": PRODUCTION_BLEND_DWD_WEIGHT,
+        "name": "hourly-capped OM current plus DWD stable equal blend",
+        "basis": PRODUCTION_BLEND_BASIS,
+    }
+
+
+def daylight_forecast_kwh(hour: dict[str, Any]) -> float:
+    """Suppress a persisted source-model floor when its weather input is dark."""
+    if float(hour.get("irradiance_wm2") or 0) <= 0:
+        return 0.0
+    return float(hour["forecast_kwh"])
 
 
 def capture_forecast_snapshot(

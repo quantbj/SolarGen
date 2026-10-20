@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 from history_app.cli import recompute_production_forecasts
 from history_app.database import forecast_detail, hourly_error_metrics, init_db, list_comparisons, parse_hourly_values, parse_number, save_actual, save_forecast_run, simple_forecast_total
 from history_app.ecoflow_store import list_ecoflow_ticks, save_ecoflow_tick
-from history_app.forecast_model import LOCATION, PRODUCTION_BLEND_DWD_WEIGHT, PRODUCTION_BLEND_OM_WEIGHT, PRODUCTION_BLEND_SOURCE, PRODUCTION_FORECASTABLE_HOURLY_CAP_KWH, blend_production_day_ahead, build_dwd_mosmix_url, build_forecast_url, capture_day_ahead_forecast, capture_dwd_day_ahead_forecast, capture_dwd_same_day_forecast, capture_production_day_ahead_forecasts, capture_same_day_forecast, compose_dwd_same_day_forecast, dwd_mosmix_xml_to_open_meteo
+from history_app.forecast_model import LOCATION, OCTOBER_OM_SCALE, PRODUCTION_BLEND_DWD_WEIGHT, PRODUCTION_BLEND_OM_WEIGHT, PRODUCTION_BLEND_SOURCE, PRODUCTION_FORECASTABLE_HOURLY_CAP_KWH, blend_production_day_ahead, build_dwd_mosmix_url, build_forecast_url, capture_day_ahead_forecast, capture_dwd_day_ahead_forecast, capture_dwd_same_day_forecast, capture_production_day_ahead_forecasts, capture_same_day_forecast, compose_dwd_same_day_forecast, dwd_mosmix_xml_to_open_meteo
 from xml.etree import ElementTree
 
 
@@ -24,7 +24,7 @@ class HistoryAppTest(unittest.TestCase):
         self.assertEqual(snapshot["source"], "Open-Meteo day-ahead")
         self.assertEqual(len(snapshot["hours"]), 24)
         self.assertGreater(snapshot["forecast_total_kwh"], 0)
-        self.assertAlmostEqual(snapshot["simple_forecast_total_kwh"], 44.652, places=3)
+        self.assertAlmostEqual(snapshot["simple_forecast_total_kwh"], 44.632, places=3)
         self.assertLessEqual(max(hour["delivered_kwh"] for hour in snapshot["hours"]), 6)
 
     def test_capture_same_day_forecast_uses_issued_date_as_target(self):
@@ -90,6 +90,23 @@ class HistoryAppTest(unittest.TestCase):
             for hour in production["hours"]
         ))
         self.assertGreaterEqual(production["theoretical_total_kwh"], production["forecast_total_kwh"])
+
+    def test_production_blend_uses_conservative_october_calibration(self):
+        forecast = sample_forecast("2026-10-20", "2026-10-21")
+        om_snapshot, dwd_snapshot, production = capture_production_day_ahead_forecasts(
+            now=datetime(2026, 10, 20, 8, tzinfo=ZoneInfo(LOCATION["timezone"])),
+            open_meteo_forecast=forecast,
+            dwd_forecast=forecast,
+        )
+
+        self.assertEqual(production["weather"]["production_model"], "hourly-capped October OM calibration")
+        self.assertEqual(production["weather"]["production_om_weight"], OCTOBER_OM_SCALE)
+        self.assertEqual(production["weather"]["production_dwd_weight"], 0.0)
+        self.assertAlmostEqual(
+            production["weather"]["production_uncapped_blend_kwh"],
+            round(OCTOBER_OM_SCALE * om_snapshot["forecast_total_kwh"], 3),
+            places=2,
+        )
 
     def test_recompute_production_forecasts_rebuilds_from_stored_inputs(self):
         con = sqlite3.connect(":memory:")

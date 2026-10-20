@@ -44,10 +44,15 @@ export function simulateForecast(forecast, settings = DEFAULTS) {
 
       // Rooftop behavior is weather-dependent: clear days keep the observed step profile,
       // cloudy days blend toward a smoother diffuse-light profile.
-      const pv = Math.max(
-        applyRooftopProfile(theoreticalPv, hour.hour, settings, hour.cloudCover),
-        diffuseDawnFloor(hour.hour, hour.cloudCover, settings)
-      );
+      // `is_day` is the provider's local sunrise/sunset boundary. Never let the
+      // empirical diffuse floor create energy outside that window: in autumn it
+      // used to inject 0.05–0.30 kWh at 05:00–06:00 while it was still dark.
+      const pv = hour.isDay
+        ? Math.max(
+          applyRooftopProfile(theoreticalPv, hour.hour, settings, hour.cloudCover),
+          diffuseDawnFloor(hour.hour, hour.cloudCover, settings)
+        )
+        : 0;
       const curtailed = Math.max(0, pv - settings.feedCap);
       const deliveredPv = pv - curtailed;
       const load = householdLoad(hour.hour, settings);
