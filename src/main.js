@@ -1,9 +1,9 @@
-import { DEFAULTS, LOCATION } from "./config.js?v=20260926-load";
-import { renderBatteryChart, renderDailyChart, renderGenerationWeatherChart, renderHourlyChart } from "./charts.js?v=20260926-load";
-import { simulateForecast } from "./model.js?v=20260926-load";
-import { blendProductionForecastDays, capForecastableProductionDays } from "./productionBlend.js?v=20260926-load";
-import { buildFallbackForecast, fetchDwdIconForecast, fetchOpenMeteoForecast } from "./weather.js?v=20260926-load";
-import { debounce, formatMoney, formatNumber } from "./utils.js?v=20260926-load";
+import { DEFAULTS, LOCATION } from "./config.js?v=20261020-recalibrated";
+import { renderBatteryChart, renderDailyChart, renderGenerationWeatherChart, renderHourlyChart } from "./charts.js?v=20261020-recalibrated";
+import { simulateForecast } from "./model.js?v=20261020-recalibrated";
+import { blendProductionForecastDays, capForecastableProductionDays } from "./productionBlend.js?v=20261020-recalibrated";
+import { buildFallbackForecast, fetchDwdIconForecast, fetchOpenMeteoForecast } from "./weather.js?v=20261020-recalibrated";
+import { debounce, formatMoney, formatNumber } from "./utils.js?v=20261020-recalibrated";
 
 const state = {
   forecast: null,

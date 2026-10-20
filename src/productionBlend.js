@@ -1,5 +1,5 @@
-import { DEFAULTS } from "./config.js?v=20260926-load";
-import { householdLoad, sumHours } from "./model.js?v=20260926-load";
+import { DEFAULTS } from "./config.js?v=20261020-recalibrated";
+import { householdLoad, sumHours } from "./model.js?v=20261020-recalibrated";
 
 export const DWD_STABLE_CURRENT_WEIGHT = 0.25;
 export const DWD_STABLE_RAW_WEIGHT = 0.75;

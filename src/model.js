@@ -1,4 +1,4 @@
-import { CALIBRATION, CLOUD_RESPONSE, DEFAULTS, LOCATION, ROOFTOP_PROFILE } from "./config.js?v=20260926-load";
+import { CALIBRATION, CLOUD_RESPONSE, DEFAULTS, LOCATION, ROOFTOP_PROFILE } from "./config.js?v=20261020-recalibrated";
 import { clamp, dayOfYear, formatDay, toRad, valueAt } from "./utils.js";
 
 let calibrationScaleCache = null;
